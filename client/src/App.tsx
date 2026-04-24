@@ -51,6 +51,11 @@ function rosterShiftClass(operatorName: string, value: string): string {
   return '';
 }
 
+function shortWeekday(ymd: string): string {
+  const d = parseYmd(ymd);
+  return ['S', 'M', 'TU', 'W', 'TH', 'F', 'S'][d.getDay()] || '';
+}
+
 export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
@@ -82,6 +87,7 @@ export default function App() {
   const [calNameFilter, setCalNameFilter] = useState('');
   const [rosterUploading, setRosterUploading] = useState(false);
   const [rosterFromDate, setRosterFromDate] = useState(() => formatIsoDate(new Date()));
+  const [selectedRosterRow, setSelectedRosterRow] = useState('');
 
   const [emailTo, setEmailTo] = useState<Record<string, boolean>>({});
 
@@ -273,6 +279,8 @@ export default function App() {
       })),
     };
   }, [rosterFromDate, rosterWithRequests]);
+
+  const todayYmd = useMemo(() => formatIsoDate(new Date()), []);
 
   const holidaysByDate = useMemo(() => {
     const map = new Map<string, string>();
@@ -1493,18 +1501,31 @@ export default function App() {
                     <tr>
                       <th>Operator</th>
                       {visibleRoster!.dates.map((d) => (
-                        <th key={d}>{d}</th>
+                        <th key={d} className={d === todayYmd ? 'roster-today-col' : ''}>
+                          <div className="roster-weekday">{shortWeekday(d)}</div>
+                          <div>{d}</div>
+                        </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {visibleRoster!.rows.map((row) => (
-                      <tr key={row.operatorName}>
+                      <tr
+                        key={row.operatorName}
+                        className={selectedRosterRow === row.operatorName ? 'roster-row-selected' : ''}
+                        onClick={() =>
+                          setSelectedRosterRow((current) => (current === row.operatorName ? '' : row.operatorName))
+                        }
+                      >
                         <th>{row.operatorName}</th>
                         {row.cells.map((cell, i) => (
                           <td
                             key={`${row.operatorName}-${visibleRoster!.dates[i]}`}
-                            className={[rosterShiftClass(row.operatorName, cell.value), cell.hasRequest ? 'roster-request-cell' : '']
+                            className={[
+                              rosterShiftClass(row.operatorName, cell.value),
+                              cell.hasRequest ? 'roster-request-cell' : '',
+                              visibleRoster!.dates[i] === todayYmd ? 'roster-today-col' : '',
+                            ]
                               .filter(Boolean)
                               .join(' ')}
                             title={cell.requestNotes.join('\n')}

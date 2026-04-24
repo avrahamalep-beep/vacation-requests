@@ -621,6 +621,35 @@ textarea {
   text-overflow: ellipsis;
 }
 
+.roster-table tbody tr {
+  cursor: pointer;
+}
+
+.roster-table tbody tr.roster-row-selected th,
+.roster-table tbody tr.roster-row-selected td {
+  outline: 2px solid #006b5f;
+  outline-offset: -2px;
+  filter: saturate(1.15);
+}
+
+.roster-weekday {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #006b5f;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin-bottom: 0.15rem;
+}
+
+.roster-today-col {
+  border-left: 3px solid #800020 !important;
+  border-right: 3px solid #800020 !important;
+}
+
+.roster-table thead .roster-today-col {
+  border-top: 3px solid #800020 !important;
+}
+
 .roster-table thead th:first-child {
   left: 0;
   z-index: 3;
