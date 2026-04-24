@@ -832,6 +832,62 @@ async function main() {
     }
   });
 
+  app.patch('/api/requests/:id/schedule', async (req, res) => {
+    const { id } = req.params;
+    const startDate = String(req.body?.startDate || '');
+    const endDate = String(req.body?.endDate || '');
+    const daysCount = Number(req.body?.daysCount) || 0;
+    if (!startDate || !endDate) return res.status(400).json({ error: 'Missing startDate/endDate.' });
+    if (!useNeon) {
+      const list = readRequestsFile();
+      const i = list.findIndex((r) => r.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list[i] = { ...list[i], startDate, endDate, daysCount };
+      writeRequestsFile(list);
+      return res.json({ id, startDate, endDate, daysCount });
+    }
+    try {
+      const rows = await sql`
+        UPDATE vacation_requests
+        SET start_date = ${startDate}::date, end_date = ${endDate}::date, days_count = ${daysCount}
+        WHERE id = ${id}::uuid
+        RETURNING id, start_date AS "startDate", end_date AS "endDate", days_count AS "daysCount"
+      `;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ id: rows[0].id, startDate: toYmd(rows[0].startDate), endDate: toYmd(rows[0].endDate), daysCount: rows[0].daysCount });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not update vacation dates.' });
+    }
+  });
+
+  app.patch('/api/shift-swaps/:id/schedule', async (req, res) => {
+    const { id } = req.params;
+    const rosterDate = String(req.body?.rosterDate || '');
+    if (!rosterDate) return res.status(400).json({ error: 'Missing rosterDate.' });
+    if (!useNeon) {
+      const list = readShiftSwapsFile();
+      const i = list.findIndex((s) => s.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list[i] = { ...list[i], rosterDate };
+      writeShiftSwapsFile(list);
+      return res.json({ id, rosterDate });
+    }
+    try {
+      const rows = await sql`
+        UPDATE shift_swap_requests
+        SET roster_date = ${rosterDate}::date
+        WHERE id = ${id}::uuid
+        RETURNING id, roster_date AS "rosterDate"
+      `;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ id: rows[0].id, rosterDate: toYmd(rows[0].rosterDate) });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not update shift swap date.' });
+    }
+  });
+
   app.get('/api/roster', async (_req, res) => {
     if (!useNeon) return res.json(readRosterFile());
     try {

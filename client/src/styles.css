@@ -175,6 +175,13 @@ textarea {
   margin: 0.25rem 0;
 }
 
+.compact-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .hint {
   font-size: 0.8rem;
   color: var(--muted);
@@ -368,6 +375,37 @@ textarea {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.decision-actions select {
+  min-width: 150px;
+  padding: 0.45rem 0.6rem;
+}
+
+.schedule-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0.85rem;
+  align-items: flex-end;
+  margin: 0.65rem 0;
+}
+
+.schedule-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.schedule-edit input {
+  padding: 0.4rem 0.5rem;
+}
+
+.schedule-days {
+  color: var(--muted);
+  font-size: 0.84rem;
+  padding-bottom: 0.45rem;
 }
 
 .cal-toolbar {

@@ -94,6 +94,7 @@ export default function App() {
   const [patchBusyId, setPatchBusyId] = useState<string | null>(null);
   const [copyShareDone, setCopyShareDone] = useState(false);
   const [deletionNotice, setDeletionNotice] = useState<string | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [swapFiles, setSwapFiles] = useState<FileList | null>(null);
   const [calFilterFrom, setCalFilterFrom] = useState('');
   const [calFilterTo, setCalFilterTo] = useState('');
@@ -266,8 +267,8 @@ export default function App() {
             const sameOperator =
               r.operatorName.trim().toLowerCase() === employee ||
               rosterNameMatches(row.operatorName, r.operatorName, r.operatorEmail);
-            if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status !== 'rejected') {
-              notes.push(`Vacation (${r.status || 'pending'}): ${r.operatorName}${r.notes ? ` - ${r.notes}` : ''}`);
+            if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status === 'accepted') {
+              notes.push('Approved vacation');
             }
           }
           for (const s of shiftSwaps) {
@@ -276,8 +277,8 @@ export default function App() {
               s.colleagueName.trim().toLowerCase() === employee ||
               rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail) ||
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
-            if (sameOperator && ymd === s.rosterDate && s.status !== 'rejected') {
-              notes.push(`Swap (${s.status || 'pending'}): ${s.requesterName} ↔ ${s.colleagueName}`);
+            if (sameOperator && ymd === s.rosterDate && s.status === 'accepted') {
+              notes.push('Approved swap');
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
@@ -496,6 +497,9 @@ export default function App() {
       });
       if (!res.ok) throw new Error('status');
       setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status } : r)));
+      if (status === 'accepted') {
+        setStatusNotice('Approved: roster data was updated. The request appears in Roster view after refresh / next load.');
+      }
       if (notifyEmail) {
         const subject = encodeURIComponent(`Vacation request ${status} (${req.startDate}–${req.endDate})`);
         const body = encodeURIComponent(buildDecisionVacationBody({ ...req, status }, status));
@@ -518,6 +522,9 @@ export default function App() {
       });
       if (!res.ok) throw new Error('status');
       setShiftSwaps((prev) => prev.map((x) => (x.id === s.id ? { ...x, status } : x)));
+      if (status === 'accepted') {
+        setStatusNotice('Approved: roster data was updated. The request appears in Roster view after refresh / next load.');
+      }
       if (notifyEmail) {
         const subject = encodeURIComponent(`Shift swap ${status} (${s.rosterDate})`);
         const body = encodeURIComponent(buildDecisionSwapBody({ ...s, status }, status));
@@ -544,6 +551,60 @@ export default function App() {
       alert('Could not upload roster. Expected Excel with dates in row 2 and operators in A3:A12.');
     } finally {
       setRosterUploading(false);
+    }
+  }
+
+  function openWhatsAppDecisionVacation(req: VacationRequest) {
+    const status = (req.status || 'pending') as RequestStatus;
+    const text = encodeURIComponent(buildDecisionVacationBody(req, status));
+    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
+  }
+
+  function openWhatsAppDecisionSwap(s: ShiftSwapRequest) {
+    const status = (s.status || 'pending') as RequestStatus;
+    const text = encodeURIComponent(buildDecisionSwapBody(s, status));
+    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
+  }
+
+  async function saveVacationSchedule(req: VacationRequest, startDate: string, endDate: string) {
+    if (!startDate || !endDate || parseYmd(startDate) > parseYmd(endDate)) {
+      alert('End date must be on or after start date.');
+      return;
+    }
+    setPatchBusyId(req.id);
+    try {
+      const daysCount = countBusinessDays(startDate, endDate);
+      const res = await fetch(`${API}/api/requests/${encodeURIComponent(req.id)}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startDate, endDate, daysCount }),
+      });
+      if (!res.ok) throw new Error('schedule');
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, startDate, endDate, daysCount } : r)));
+      setStatusNotice('Dates updated. Re-check Roster view after refresh / next load.');
+    } catch {
+      alert('Could not update vacation dates.');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  async function saveShiftSwapSchedule(s: ShiftSwapRequest, rosterDate: string) {
+    if (!rosterDate) return;
+    setPatchBusyId(s.id);
+    try {
+      const res = await fetch(`${API}/api/shift-swaps/${encodeURIComponent(s.id)}/schedule`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rosterDate }),
+      });
+      if (!res.ok) throw new Error('schedule');
+      setShiftSwaps((prev) => prev.map((x) => (x.id === s.id ? { ...x, rosterDate } : x)));
+      setStatusNotice('Date updated. Re-check Roster view after refresh / next load.');
+    } catch {
+      alert('Could not update shift swap date.');
+    } finally {
+      setPatchBusyId(null);
     }
   }
 
@@ -850,6 +911,14 @@ export default function App() {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+      {statusNotice && (
+        <div className="alert compact-notice" role="status">
+          <span>{statusNotice}</span>
+          <button type="button" className="btn ghost" onClick={() => setStatusNotice(null)}>
+            OK
+          </button>
         </div>
       )}
       {loadError && (
@@ -1185,9 +1254,33 @@ export default function App() {
                     Marked processed: {new Date(r.processedAt).toLocaleString()}
                   </p>
                 )}
-                <p>
-                  {r.startDate} → {r.endDate} · <strong>{r.daysCount}</strong> business days
-                </p>
+                <div className="schedule-edit">
+                  <label>
+                    <span>Start</span>
+                    <input
+                      type="date"
+                      defaultValue={r.startDate}
+                      disabled={patchBusyId === r.id}
+                      onBlur={(e) => {
+                        if (e.target.value === r.startDate) return;
+                        void saveVacationSchedule(r, e.target.value, r.endDate);
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <span>End</span>
+                    <input
+                      type="date"
+                      defaultValue={r.endDate}
+                      disabled={patchBusyId === r.id}
+                      onBlur={(e) => {
+                        if (e.target.value === r.endDate) return;
+                        void saveVacationSchedule(r, r.startDate, e.target.value);
+                      }}
+                    />
+                  </label>
+                  <span className="schedule-days">{r.daysCount} business days</span>
+                </div>
                 {r.notes && <p className="notes">{r.notes}</p>}
                 <label className="field admin-note-field">
                   <span>Admin note (visible on Calendar; for roster owner)</span>
@@ -1246,23 +1339,22 @@ export default function App() {
                     WhatsApp — request
                   </button>
                 </div>
-                <p className="actions-label">Decision</p>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="btn secondary"
+                <p className="actions-label">Process</p>
+                <div className="actions decision-actions">
+                  <select
+                    value={r.status || 'pending'}
                     disabled={patchBusyId === r.id}
-                    onClick={() => void setVacationStatus(r, 'accepted', true)}
+                    onChange={(e) => void setVacationStatus(r, e.target.value as RequestStatus)}
                   >
-                    Accepted + email
+                    <option value="pending">Requesting</option>
+                    <option value="accepted">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                  <button type="button" className="btn secondary" onClick={() => void setVacationStatus(r, (r.status || 'pending') as RequestStatus, true)}>
+                    Email status
                   </button>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    disabled={patchBusyId === r.id}
-                    onClick={() => void setVacationStatus(r, 'rejected', true)}
-                  >
-                    Rejected + email
+                  <button type="button" className="btn secondary" onClick={() => openWhatsAppDecisionVacation(r)}>
+                    WhatsApp status
                   </button>
                 </div>
                 <p className="actions-label">Tell the requester it is done in the roster</p>
@@ -1311,9 +1403,23 @@ export default function App() {
                     Marked processed: {new Date(s.processedAt).toLocaleString()}
                   </p>
                 )}
-                <p>
-                  Requests swap with <strong>{s.colleagueName}</strong> on <strong>{s.rosterDate}</strong>
-                </p>
+                <div className="schedule-edit">
+                  <span>
+                    Requests swap with <strong>{s.colleagueName}</strong>
+                  </span>
+                  <label>
+                    <span>Roster date</span>
+                    <input
+                      type="date"
+                      defaultValue={s.rosterDate}
+                      disabled={patchBusyId === s.id}
+                      onBlur={(e) => {
+                        if (e.target.value === s.rosterDate) return;
+                        void saveShiftSwapSchedule(s, e.target.value);
+                      }}
+                    />
+                  </label>
+                </div>
                 <p>
                   Change needed: <strong>{s.currentShift}</strong> → <strong>{s.requestedShift}</strong>
                 </p>
@@ -1363,23 +1469,22 @@ export default function App() {
                     WhatsApp — request
                   </button>
                 </div>
-                <p className="actions-label">Decision</p>
-                <div className="actions">
-                  <button
-                    type="button"
-                    className="btn secondary"
+                <p className="actions-label">Process</p>
+                <div className="actions decision-actions">
+                  <select
+                    value={s.status || 'pending'}
                     disabled={patchBusyId === s.id}
-                    onClick={() => void setShiftSwapStatus(s, 'accepted', true)}
+                    onChange={(e) => void setShiftSwapStatus(s, e.target.value as RequestStatus)}
                   >
-                    Accepted + email
+                    <option value="pending">Requesting</option>
+                    <option value="accepted">Approved</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                  <button type="button" className="btn secondary" onClick={() => void setShiftSwapStatus(s, (s.status || 'pending') as RequestStatus, true)}>
+                    Email status
                   </button>
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    disabled={patchBusyId === s.id}
-                    onClick={() => void setShiftSwapStatus(s, 'rejected', true)}
-                  >
-                    Rejected + email
+                  <button type="button" className="btn secondary" onClick={() => openWhatsAppDecisionSwap(s)}>
+                    WhatsApp status
                   </button>
                 </div>
                 <p className="actions-label">Tell both operators it is done in the roster</p>
