@@ -20,6 +20,8 @@ export type VacationRequest = {
   endDate: string;
   daysCount: number;
   notes: string;
+  /** Internal roster / admin only (visible in Inbox + Calendar) */
+  adminNotes?: string;
   attachments: Attachment[];
   conflictWarnings: ConflictWarning[];
   createdAt: string;
@@ -40,6 +42,8 @@ export type ShiftSwapRequest = {
   currentShift: ShiftType;
   requestedShift: ShiftType;
   details: string;
+  adminNotes?: string;
+  attachments?: Attachment[];
   createdAt: string;
   status: string;
   rosterProcessed?: boolean;

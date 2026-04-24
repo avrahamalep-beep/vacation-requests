@@ -13,6 +13,15 @@ type Tab = 'request' | 'shiftSwap' | 'inbox' | 'calendar';
 
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
 
+function shareablePublicUrl(): string | null {
+  const fromEnv = (import.meta.env.VITE_PUBLIC_APP_URL || '').trim().replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+  if (typeof window === 'undefined') return null;
+  const h = window.location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1') return null;
+  return window.location.origin;
+}
+
 export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
@@ -35,8 +44,16 @@ export default function App() {
   const [swapDetails, setSwapDetails] = useState('');
   const [swapSubmitting, setSwapSubmitting] = useState(false);
   const [patchBusyId, setPatchBusyId] = useState<string | null>(null);
+  const [copyShareDone, setCopyShareDone] = useState(false);
+  const [deletionNotice, setDeletionNotice] = useState<string | null>(null);
+  const [swapFiles, setSwapFiles] = useState<FileList | null>(null);
+  const [calFilterFrom, setCalFilterFrom] = useState('');
+  const [calFilterTo, setCalFilterTo] = useState('');
+  const [calNameFilter, setCalNameFilter] = useState('');
 
   const [emailTo, setEmailTo] = useState<Record<string, boolean>>({});
+
+  const publicShareUrl = useMemo(() => shareablePublicUrl(), []);
 
   const selectedOp = useMemo(
     () => operators.find((o) => o.email === operatorEmail),
@@ -55,6 +72,15 @@ export default function App() {
     if (!startDate || !endDate) return 0;
     return countBusinessDays(startDate, endDate);
   }, [startDate, endDate]);
+
+  const copyPublicLink = useCallback(() => {
+    const u = publicShareUrl;
+    if (!u) return;
+    void navigator.clipboard.writeText(u).then(() => {
+      setCopyShareDone(true);
+      window.setTimeout(() => setCopyShareDone(false), 2000);
+    });
+  }, [publicShareUrl]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,18 +140,54 @@ export default function App() {
   const [calYear, setCalYear] = useState(calendarMonth.getFullYear());
   const [calMonth, setCalMonth] = useState(calendarMonth.getMonth());
 
-  const daysWithRequests = useMemo(() => {
-    const map = new Map<string, { names: Set<string>; emails: Set<string> }>();
-    for (const r of requests) {
+  const filteredCalendarRequests = useMemo(() => {
+    const q = calNameFilter.trim().toLowerCase();
+    return requests.filter((r) => {
+      if (q && !`${r.operatorName} ${r.operatorEmail}`.toLowerCase().includes(q)) return false;
+      if (calFilterFrom && r.endDate < calFilterFrom) return false;
+      if (calFilterTo && r.startDate > calFilterTo) return false;
+      return true;
+    });
+  }, [requests, calNameFilter, calFilterFrom, calFilterTo]);
+
+  const filteredCalendarSwaps = useMemo(() => {
+    const q = calNameFilter.trim().toLowerCase();
+    return shiftSwaps.filter((s) => {
+      if (q) {
+        const blob = `${s.requesterName} ${s.colleagueName} ${s.requesterEmail} ${s.colleagueEmail}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      if (calFilterFrom && s.rosterDate < calFilterFrom) return false;
+      if (calFilterTo && s.rosterDate > calFilterTo) return false;
+      return true;
+    });
+  }, [shiftSwaps, calNameFilter, calFilterFrom, calFilterTo]);
+
+  const calendarLinesByDay = useMemo(() => {
+    const m = new Map<string, { kind: 'vac' | 'swap'; title: string; note: string }[]>();
+    for (const r of filteredCalendarRequests) {
       for (const day of enumerateDays(r.startDate, r.endDate)) {
-        if (!map.has(day)) map.set(day, { names: new Set(), emails: new Set() });
-        const e = map.get(day)!;
-        e.names.add(r.operatorName || r.operatorEmail);
-        e.emails.add(r.operatorEmail);
+        if (!m.has(day)) m.set(day, []);
+        const noteParts = [r.notes, r.adminNotes].map((x) => (x || '').trim()).filter(Boolean);
+        m.get(day)!.push({
+          kind: 'vac',
+          title: r.operatorName,
+          note: noteParts.length ? noteParts.join(' · ') : '—',
+        });
       }
     }
-    return map;
-  }, [requests]);
+    for (const s of filteredCalendarSwaps) {
+      const day = s.rosterDate;
+      if (!m.has(day)) m.set(day, []);
+      const noteParts = [s.details, s.adminNotes].map((x) => (x || '').trim()).filter(Boolean);
+      m.get(day)!.push({
+        kind: 'swap',
+        title: `Swap: ${s.requesterName}↔${s.colleagueName}`,
+        note: noteParts.length ? noteParts.join(' · ') : '—',
+      });
+    }
+    return m;
+  }, [filteredCalendarRequests, filteredCalendarSwaps]);
 
   const holidaysByDate = useMemo(() => {
     const map = new Map<string, string>();
@@ -192,21 +254,17 @@ export default function App() {
 
     setSwapSubmitting(true);
     try {
-      const payload = {
-        requesterName: swapRequester.name,
-        requesterEmail: swapRequester.email,
-        colleagueName: swapColleague.name,
-        colleagueEmail: swapColleague.email,
-        rosterDate: swapRosterDate,
-        currentShift: swapCurrentShift,
-        requestedShift: swapRequestedShift,
-        details: swapDetails.trim(),
-      };
-      const res = await fetch(`${API}/api/shift-swaps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const fd = new FormData();
+      fd.append('requesterName', swapRequester.name);
+      fd.append('requesterEmail', swapRequester.email);
+      fd.append('colleagueName', swapColleague.name);
+      fd.append('colleagueEmail', swapColleague.email);
+      fd.append('rosterDate', swapRosterDate);
+      fd.append('currentShift', swapCurrentShift);
+      fd.append('requestedShift', swapRequestedShift);
+      fd.append('details', swapDetails.trim());
+      if (swapFiles) for (let i = 0; i < swapFiles.length; i++) fd.append('attachments', swapFiles[i]);
+      const res = await fetch(`${API}/api/shift-swaps`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error('Save failed');
       const created = (await res.json()) as ShiftSwapRequest;
       setShiftSwaps((prev) => [created, ...prev]);
@@ -215,6 +273,7 @@ export default function App() {
       setSwapCurrentShift('morning');
       setSwapRequestedShift('night');
       setSwapDetails('');
+      setSwapFiles(null);
       setTab('inbox');
     } catch {
       alert('Could not save shift swap request. Is the API running?');
@@ -335,15 +394,132 @@ export default function App() {
         body: JSON.stringify({ rosterProcessed }),
       });
       if (!res.ok) throw new Error('patch');
-      const data = (await res.json()) as { id: string; rosterProcessed: boolean; processedAt: string | null };
+      const data = (await res.json()) as {
+        id: string;
+        rosterProcessed: boolean;
+        processedAt: string | null;
+        adminNotes?: string;
+      };
       setRequests((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, rosterProcessed: data.rosterProcessed, processedAt: data.processedAt } : r))
+        prev.map((r) =>
+          r.id === id
+            ? {
+                ...r,
+                rosterProcessed: data.rosterProcessed,
+                processedAt: data.processedAt,
+                adminNotes: data.adminNotes ?? r.adminNotes,
+              }
+            : r
+        )
       );
     } catch {
       alert('Could not update roster status. Check the API and database schema.');
     } finally {
       setPatchBusyId(null);
     }
+  }
+
+  async function saveVacationAdminNotes(id: string, adminNotes: string) {
+    setPatchBusyId(id);
+    try {
+      const res = await fetch(`${API}/api/requests/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminNotes }),
+      });
+      if (!res.ok) throw new Error('patch');
+      const data = (await res.json()) as { adminNotes: string };
+      setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, adminNotes: data.adminNotes } : r)));
+    } catch {
+      alert('Could not save admin note. Run the latest SQL migration on Neon and redeploy if needed.');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  async function saveShiftSwapAdminNotes(id: string, adminNotes: string) {
+    setPatchBusyId(id);
+    try {
+      const res = await fetch(`${API}/api/shift-swaps/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminNotes }),
+      });
+      if (!res.ok) throw new Error('patch');
+      const data = (await res.json()) as { adminNotes: string };
+      setShiftSwaps((prev) => prev.map((s) => (s.id === id ? { ...s, adminNotes: data.adminNotes } : s)));
+    } catch {
+      alert('Could not save admin note. Run the latest SQL migration on Neon and redeploy if needed.');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  function buildDeletedVacationNotice(req: VacationRequest): string {
+    return [
+      '[REMOVED] This vacation request was deleted from the team inbox system by an administrator.',
+      `Operator: ${req.operatorName}`,
+      `Dates: ${req.startDate} → ${req.endDate} (${req.daysCount} business days)`,
+      req.notes ? `Original notes: ${req.notes}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function buildDeletedShiftNotice(s: ShiftSwapRequest): string {
+    return [
+      '[REMOVED] This shift swap request was deleted from the team inbox system by an administrator.',
+      `Request: ${s.requesterName} ↔ ${s.colleagueName}`,
+      `Roster date: ${s.rosterDate} (${s.currentShift} → ${s.requestedShift})`,
+      s.details ? `Details: ${s.details}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  async function deleteVacationRequest(req: VacationRequest) {
+    if (!window.confirm('Delete this vacation request permanently? It will be removed for everyone.')) return;
+    const notice = buildDeletedVacationNotice(req);
+    setPatchBusyId(req.id);
+    try {
+      const res = await fetch(`${API}/api/requests/${encodeURIComponent(req.id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('delete');
+      setRequests((prev) => prev.filter((r) => r.id !== req.id));
+      setDeletionNotice(notice);
+    } catch {
+      alert('Could not delete. Check the API and database (migration for DELETE).');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  async function deleteShiftSwapRequest(s: ShiftSwapRequest) {
+    if (!window.confirm('Delete this shift swap request permanently? It will be removed for everyone.')) return;
+    const notice = buildDeletedShiftNotice(s);
+    setPatchBusyId(s.id);
+    try {
+      const res = await fetch(`${API}/api/shift-swaps/${encodeURIComponent(s.id)}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('delete');
+      setShiftSwaps((prev) => prev.filter((x) => x.id !== s.id));
+      setDeletionNotice(notice);
+    } catch {
+      alert('Could not delete. Check the API and database (migration for DELETE).');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  function openMailtoDeletionNotice() {
+    if (!deletionNotice) return;
+    const subject = encodeURIComponent('Removed: vacation / shift request (inbox update)');
+    const body = encodeURIComponent(deletionNotice);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  }
+
+  function openWhatsAppDeletionNotice() {
+    if (!deletionNotice) return;
+    const text = encodeURIComponent(deletionNotice);
+    window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
   }
 
   async function patchShiftSwapRoster(id: string, rosterProcessed: boolean) {
@@ -355,9 +531,23 @@ export default function App() {
         body: JSON.stringify({ rosterProcessed }),
       });
       if (!res.ok) throw new Error('patch');
-      const data = (await res.json()) as { id: string; rosterProcessed: boolean; processedAt: string | null };
+      const data = (await res.json()) as {
+        id: string;
+        rosterProcessed: boolean;
+        processedAt: string | null;
+        adminNotes?: string;
+      };
       setShiftSwaps((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, rosterProcessed: data.rosterProcessed, processedAt: data.processedAt } : s))
+        prev.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                rosterProcessed: data.rosterProcessed,
+                processedAt: data.processedAt,
+                adminNotes: data.adminNotes ?? s.adminNotes,
+              }
+            : s
+        )
       );
     } catch {
       alert('Could not update roster status. Check the API and database schema.');
@@ -419,6 +609,32 @@ export default function App() {
 
   return (
     <div className="shell">
+      {deletionNotice && (
+        <div className="card deletion-banner" role="status">
+          <p style={{ marginTop: 0 }}>
+            <strong>Deleted — share this text</strong> so people know the request was removed from the system:
+          </p>
+          <pre className="deletion-pre">{deletionNotice}</pre>
+          <div className="actions">
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => void navigator.clipboard.writeText(deletionNotice)}
+            >
+              Copy text
+            </button>
+            <button type="button" className="btn secondary" onClick={() => openMailtoDeletionNotice()}>
+              Email
+            </button>
+            <button type="button" className="btn secondary" onClick={() => openWhatsAppDeletionNotice()}>
+              WhatsApp
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setDeletionNotice(null)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {loadError && (
         <div className="alert" role="status" style={{ marginBottom: '1rem' }}>
           {loadError}
@@ -429,6 +645,23 @@ export default function App() {
         <p className="tagline">
           Submit time off, see team coverage on the calendar, and notify others by email or WhatsApp.
         </p>
+        {publicShareUrl ? (
+          <p className="shareLine">
+            <span>Public link to share (WhatsApp, email):</span>
+            <code>{publicShareUrl}</code>
+            <button type="button" className="btn secondary" onClick={() => copyPublicLink()}>
+              {copyShareDone ? 'Copied' : 'Copy link'}
+            </button>
+          </p>
+        ) : (
+          <p className="shareLine" style={{ color: 'var(--muted)' }}>
+            Local dev: <code>http://127.0.0.1:5173</code> is only for this PC. Set{' '}
+            <code style={{ background: 'transparent', border: 'none' }}>VITE_PUBLIC_APP_URL</code> in <code> .env</code> to
+            your Render <code>https://…onrender.com</code> URL, or run <code>npm run share</code> after you save that line. On
+            Render, the public link is detected automatically.
+            After deploy, this page can show the link automatically.
+          </p>
+        )}
         <nav className="tabs">
           <button type="button" className={tab === 'request' ? 'active' : ''} onClick={() => setTab('request')}>
             New request
@@ -647,6 +880,17 @@ export default function App() {
               />
             </label>
 
+            <label className="field">
+              <span>Attach photo or document (optional)</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx"
+                onChange={(e) => setSwapFiles(e.target.files)}
+              />
+              <span className="hint">Same as vacation: stored on the server (max ~12 MB per file).</span>
+            </label>
+
             {(swapRequesterEmail && swapColleagueEmail && swapRequesterEmail === swapColleagueEmail) ||
             swapCurrentShift === swapRequestedShift ? (
               <div className="alert" role="status">
@@ -724,6 +968,22 @@ export default function App() {
                   {r.startDate} → {r.endDate} · <strong>{r.daysCount}</strong> business days
                 </p>
                 {r.notes && <p className="notes">{r.notes}</p>}
+                <label className="field admin-note-field">
+                  <span>Admin note (visible on Calendar; for roster owner)</span>
+                  <textarea
+                    key={`${r.id}-adm-${(r.adminNotes || '').length}`}
+                    className="admin-textarea"
+                    rows={2}
+                    defaultValue={r.adminNotes || ''}
+                    disabled={patchBusyId === r.id}
+                    onBlur={(e) => {
+                      const v = e.target.value;
+                      if (v.trim() === (r.adminNotes || '').trim()) return;
+                      void saveVacationAdminNotes(r.id, v);
+                    }}
+                    placeholder="e.g. Approved in HR system, or roster line 12 updated…"
+                  />
+                </label>
                 {r.conflictWarnings?.length > 0 && (
                   <div className="warn">
                     <strong>Overlap warning:</strong>
@@ -774,6 +1034,16 @@ export default function App() {
                     WhatsApp — roster processed
                   </button>
                 </div>
+                <div className="danger-zone">
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={patchBusyId === r.id}
+                    onClick={() => void deleteVacationRequest(r)}
+                  >
+                    Delete vacation request
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -807,6 +1077,33 @@ export default function App() {
                   Change needed: <strong>{s.currentShift}</strong> → <strong>{s.requestedShift}</strong>
                 </p>
                 {s.details && <p className="notes">{s.details}</p>}
+                {s.attachments && s.attachments.length > 0 && (
+                  <ul className="attachments">
+                    {s.attachments.map((a) => (
+                      <li key={a.filename}>
+                        <a href={`${API}${a.url}`} download target="_blank" rel="noreferrer">
+                          {a.originalName}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <label className="field admin-note-field">
+                  <span>Admin note (visible on Calendar; for roster owner)</span>
+                  <textarea
+                    key={`${s.id}-adm-${(s.adminNotes || '').length}`}
+                    className="admin-textarea"
+                    rows={2}
+                    defaultValue={s.adminNotes || ''}
+                    disabled={patchBusyId === s.id}
+                    onBlur={(e) => {
+                      const v = e.target.value;
+                      if (v.trim() === (s.adminNotes || '').trim()) return;
+                      void saveShiftSwapAdminNotes(s.id, v);
+                    }}
+                    placeholder="e.g. Roster file updated — row 4…"
+                  />
+                </label>
                 <label className="roster-check">
                   <input
                     type="checkbox"
@@ -834,6 +1131,16 @@ export default function App() {
                     WhatsApp — roster processed
                   </button>
                 </div>
+                <div className="danger-zone">
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={patchBusyId === s.id}
+                    onClick={() => void deleteShiftSwapRequest(s)}
+                  >
+                    Delete shift swap request
+                  </button>
+                </div>
               </li>
             ))}
           </ul>
@@ -854,9 +1161,40 @@ export default function App() {
               Next →
             </button>
           </div>
-          <p className="muted">
-            Blue badges: requested vacation days. Purple badges: Israel holidays.
+          <p className="muted" style={{ marginBottom: '0.5rem' }}>
+            Use filters to find people or a date range. Each day shows who is off and admin notes. Purple: Israel
+            holidays.
           </p>
+          <div className="cal-filters">
+            <label className="field inline">
+              <span>From</span>
+              <input type="date" value={calFilterFrom} onChange={(e) => setCalFilterFrom(e.target.value)} />
+            </label>
+            <label className="field inline">
+              <span>To</span>
+              <input type="date" value={calFilterTo} onChange={(e) => setCalFilterTo(e.target.value)} />
+            </label>
+            <label className="field inline grow">
+              <span>Search name / email</span>
+              <input
+                type="search"
+                value={calNameFilter}
+                onChange={(e) => setCalNameFilter(e.target.value)}
+                placeholder="Filter calendar rows…"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={() => {
+                setCalFilterFrom('');
+                setCalFilterTo('');
+                setCalNameFilter('');
+              }}
+            >
+              Clear filters
+            </button>
+          </div>
           <div className="weekdays">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
               <div key={d} className="wd">
@@ -876,12 +1214,18 @@ export default function App() {
                       {holidaysByDate.get(c.ymd)}
                     </span>
                   )}
-                  {daysWithRequests.has(c.ymd) && (
-                    <span className="badge" title={[...daysWithRequests.get(c.ymd)!.names].join(', ')}>
-                      {[...daysWithRequests.get(c.ymd)!.names].slice(0, 2).join(', ')}
-                      {[...daysWithRequests.get(c.ymd)!.names].length > 2 ? '…' : ''}
-                    </span>
-                  )}
+                  <div className="cal-entries">
+                    {(calendarLinesByDay.get(c.ymd) || []).map((line, li) => (
+                      <div
+                        key={li}
+                        className={`cal-line ${line.kind === 'swap' ? 'cal-line-swap' : ''}`}
+                        title={`${line.title}\n${line.note}`}
+                      >
+                        <span className="cal-line-title">{line.title}</span>
+                        <span className="cal-line-note">{line.note}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )
             )}

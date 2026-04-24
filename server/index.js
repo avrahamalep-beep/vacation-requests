@@ -132,6 +132,7 @@ function normalizeVacationRow(r) {
   if (!r || typeof r !== 'object') return r;
   return {
     ...r,
+    adminNotes: r.adminNotes ?? '',
     rosterProcessed: Boolean(r.rosterProcessed),
     processedAt: r.processedAt ?? null,
   };
@@ -141,6 +142,8 @@ function normalizeShiftSwapRow(s) {
   if (!s || typeof s !== 'object') return s;
   return {
     ...s,
+    adminNotes: s.adminNotes ?? '',
+    attachments: normalizeAttachments(s.attachments),
     rosterProcessed: Boolean(s.rosterProcessed),
     processedAt: s.processedAt ?? null,
   };
@@ -193,6 +196,7 @@ async function main() {
             r.end_date AS "endDate",
             r.days_count AS "daysCount",
             r.notes,
+            r.admin_notes AS "adminNotes",
             r.status,
             r.conflict_warnings AS "conflictWarnings",
             r.roster_processed AS "rosterProcessed",
@@ -224,6 +228,7 @@ async function main() {
             endDate: toYmd(row.endDate),
             daysCount: row.daysCount,
             notes: row.notes ?? '',
+            adminNotes: row.adminNotes ?? '',
             status: row.status,
             conflictWarnings: Array.isArray(row.conflictWarnings)
               ? row.conflictWarnings
@@ -251,7 +256,7 @@ async function main() {
       return;
     }
 
-    res.json(readRequestsFile().map(normalizeVacationRow));
+    res.json(readRequestsFile().map((r) => normalizeVacationRow({ ...r, adminNotes: r.adminNotes ?? '' })));
   });
 
   app.get('/api/shift-swaps', async (_req, res) => {
@@ -259,27 +264,43 @@ async function main() {
       try {
         const rows = await sql`
           SELECT
-            id,
-            requester_name AS "requesterName",
-            requester_email AS "requesterEmail",
-            colleague_name AS "colleagueName",
-            colleague_email AS "colleagueEmail",
-            roster_date AS "rosterDate",
-            current_shift AS "currentShift",
-            requested_shift AS "requestedShift",
-            details,
-            status,
-            roster_processed AS "rosterProcessed",
-            processed_at AS "processedAt",
-            created_at AS "createdAt"
-          FROM shift_swap_requests
-          ORDER BY created_at DESC
+            s.id,
+            s.requester_name AS "requesterName",
+            s.requester_email AS "requesterEmail",
+            s.colleague_name AS "colleagueName",
+            s.colleague_email AS "colleagueEmail",
+            s.roster_date AS "rosterDate",
+            s.current_shift AS "currentShift",
+            s.requested_shift AS "requestedShift",
+            s.details,
+            s.admin_notes AS "adminNotes",
+            s.status,
+            s.roster_processed AS "rosterProcessed",
+            s.processed_at AS "processedAt",
+            s.created_at AS "createdAt",
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'filename', a.filename,
+                  'originalName', a.original_name,
+                  'url', a.url_path
+                )
+                ORDER BY a.id
+              ) FILTER (WHERE a.id IS NOT NULL),
+              '[]'::json
+            ) AS attachments
+          FROM shift_swap_requests s
+          LEFT JOIN shift_swap_attachments a ON a.request_id = s.id
+          GROUP BY s.id
+          ORDER BY s.created_at DESC
         `;
         res.json(
           rows.map((row) =>
             normalizeShiftSwapRow({
               ...row,
               rosterDate: toYmd(row.rosterDate),
+              adminNotes: row.adminNotes ?? '',
+              attachments: normalizeAttachments(row.attachments),
               rosterProcessed: row.rosterProcessed,
               processedAt:
                 row.processedAt == null
@@ -298,7 +319,9 @@ async function main() {
       return;
     }
 
-    res.json(readShiftSwapsFile().map(normalizeShiftSwapRow));
+    res.json(
+      readShiftSwapsFile().map((s) => normalizeShiftSwapRow({ ...s, adminNotes: s.adminNotes ?? '' }))
+    );
   });
 
   app.post('/api/requests', upload.array('attachments', 8), async (req, res) => {
@@ -332,6 +355,7 @@ async function main() {
         endDate: end,
         daysCount,
         notes,
+        adminNotes: '',
         attachments,
         conflictWarnings,
         createdAt: new Date().toISOString(),
@@ -369,6 +393,7 @@ async function main() {
           end_date,
           days_count,
           notes,
+          admin_notes,
           status,
           conflict_warnings,
           roster_processed,
@@ -382,6 +407,7 @@ async function main() {
           ${end}::date,
           ${daysCount},
           ${notes},
+          '',
           'pending',
           ${JSON.stringify(conflictWarnings)}::jsonb,
           FALSE,
@@ -405,6 +431,7 @@ async function main() {
         endDate: end,
         daysCount,
         notes,
+        adminNotes: '',
         attachments,
         conflictWarnings,
         createdAt: new Date().toISOString(),
@@ -420,7 +447,7 @@ async function main() {
     }
   });
 
-  app.post('/api/shift-swaps', async (req, res) => {
+  app.post('/api/shift-swaps', upload.array('attachments', 8), async (req, res) => {
     const body = req.body || {};
     const requesterName = body.requesterName || '';
     const requesterEmail = body.requesterEmail || '';
@@ -447,6 +474,13 @@ async function main() {
       return res.status(400).json({ error: 'Requested shift must be different from current shift.' });
     }
 
+    const files = req.files || [];
+    const attachments = files.map((f) => ({
+      filename: f.filename,
+      originalName: f.originalname,
+      url: `/uploads/${f.filename}`,
+    }));
+
     const record = {
       id: uuidv4(),
       requesterName,
@@ -457,6 +491,8 @@ async function main() {
       currentShift,
       requestedShift,
       details,
+      adminNotes: '',
+      attachments,
       status: 'pending',
       createdAt: new Date().toISOString(),
       rosterProcessed: false,
@@ -482,6 +518,7 @@ async function main() {
           current_shift,
           requested_shift,
           details,
+          admin_notes,
           status,
           roster_processed,
           processed_at
@@ -496,11 +533,19 @@ async function main() {
           ${currentShift},
           ${requestedShift},
           ${details},
+          '',
           'pending',
           FALSE,
           NULL
         )
       `;
+      for (const f of files) {
+        const urlPath = `/uploads/${f.filename}`;
+        await sql`
+          INSERT INTO shift_swap_attachments (request_id, filename, original_name, url_path)
+          VALUES (${record.id}::uuid, ${f.filename}, ${f.originalname}, ${urlPath})
+        `;
+      }
       res.status(201).json(record);
     } catch (err) {
       console.error(err);
@@ -511,84 +556,193 @@ async function main() {
   app.patch('/api/requests/:id', async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Missing id.' });
-    if (typeof req.body?.rosterProcessed !== 'boolean') {
-      return res.status(400).json({ error: 'Body must include rosterProcessed (boolean).' });
+    const hasRoster = typeof req.body?.rosterProcessed === 'boolean';
+    const hasAdmin = typeof req.body?.adminNotes === 'string';
+    if (!hasRoster && !hasAdmin) {
+      return res.status(400).json({ error: 'Body must include rosterProcessed (boolean) and/or adminNotes (string).' });
     }
-    const rosterProcessed = req.body.rosterProcessed;
 
     if (!useNeon) {
       const list = readRequestsFile();
       const i = list.findIndex((r) => r.id === id);
       if (i === -1) return res.status(404).json({ error: 'Not found.' });
-      const processedAt = rosterProcessed ? new Date().toISOString() : null;
-      list[i] = { ...list[i], rosterProcessed, processedAt };
+      const prev = list[i];
+      const rosterProcessed = hasRoster ? req.body.rosterProcessed : prev.rosterProcessed;
+      const adminNotes = hasAdmin ? req.body.adminNotes : prev.adminNotes || '';
+      const newProcessedAt = hasRoster
+        ? req.body.rosterProcessed
+          ? new Date().toISOString()
+          : null
+        : prev.processedAt ?? null;
+      list[i] = { ...prev, rosterProcessed, adminNotes, processedAt: newProcessedAt };
       writeRequestsFile(list);
-      return res.json({ id, rosterProcessed, processedAt });
+      return res.json({ id, rosterProcessed, adminNotes, processedAt: newProcessedAt });
     }
 
     try {
+      if (hasRoster && hasAdmin) {
+        const rows = await sql`
+          UPDATE vacation_requests
+          SET
+            roster_processed = ${req.body.rosterProcessed},
+            processed_at = CASE WHEN ${req.body.rosterProcessed} THEN NOW() ELSE NULL END,
+            admin_notes = ${req.body.adminNotes}
+          WHERE id = ${id}::uuid
+          RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
+        `;
+        if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+        return jsonVacationPatch(rows[0], res);
+      }
+      if (hasRoster) {
+        const rosterProcessed = req.body.rosterProcessed;
+        const rows = await sql`
+          UPDATE vacation_requests
+          SET
+            roster_processed = ${rosterProcessed},
+            processed_at = CASE WHEN ${rosterProcessed} THEN NOW() ELSE NULL END
+          WHERE id = ${id}::uuid
+          RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
+        `;
+        if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+        return jsonVacationPatch(rows[0], res);
+      }
+      const adminNotes = req.body.adminNotes;
       const rows = await sql`
         UPDATE vacation_requests
-        SET
-          roster_processed = ${rosterProcessed},
-          processed_at = CASE WHEN ${rosterProcessed} THEN NOW() ELSE NULL END
+        SET admin_notes = ${adminNotes}
         WHERE id = ${id}::uuid
-        RETURNING id, roster_processed AS "rosterProcessed", processed_at AS "processedAt"
+        RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
       `;
       if (!rows.length) return res.status(404).json({ error: 'Not found.' });
-      const row = rows[0];
-      const processedAt =
-        row.processedAt == null
-          ? null
-          : row.processedAt instanceof Date
-            ? row.processedAt.toISOString()
-            : String(row.processedAt);
-      res.json({ id: row.id, rosterProcessed: Boolean(row.rosterProcessed), processedAt });
+      return jsonVacationPatch(rows[0], res);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Could not update vacation request.' });
     }
   });
 
+  function jsonVacationPatch(row, res) {
+    const processedAt =
+      row.processedAt == null
+        ? null
+        : row.processedAt instanceof Date
+          ? row.processedAt.toISOString()
+          : String(row.processedAt);
+    res.json({
+      id: row.id,
+      rosterProcessed: Boolean(row.rosterProcessed),
+      adminNotes: row.adminNotes ?? '',
+      processedAt,
+    });
+  }
+
   app.patch('/api/shift-swaps/:id', async (req, res) => {
     const { id } = req.params;
     if (!id) return res.status(400).json({ error: 'Missing id.' });
-    if (typeof req.body?.rosterProcessed !== 'boolean') {
-      return res.status(400).json({ error: 'Body must include rosterProcessed (boolean).' });
+    const hasRoster = typeof req.body?.rosterProcessed === 'boolean';
+    const hasAdmin = typeof req.body?.adminNotes === 'string';
+    if (!hasRoster && !hasAdmin) {
+      return res.status(400).json({ error: 'Body must include rosterProcessed (boolean) and/or adminNotes (string).' });
     }
-    const rosterProcessed = req.body.rosterProcessed;
 
     if (!useNeon) {
       const list = readShiftSwapsFile();
       const i = list.findIndex((s) => s.id === id);
       if (i === -1) return res.status(404).json({ error: 'Not found.' });
-      const processedAt = rosterProcessed ? new Date().toISOString() : null;
-      list[i] = { ...list[i], rosterProcessed, processedAt };
+      const prev = list[i];
+      const rosterProcessed = hasRoster ? req.body.rosterProcessed : prev.rosterProcessed;
+      const adminNotes = hasAdmin ? req.body.adminNotes : prev.adminNotes || '';
+      const newProcessedAt = hasRoster
+        ? req.body.rosterProcessed
+          ? new Date().toISOString()
+          : null
+        : prev.processedAt ?? null;
+      list[i] = { ...prev, rosterProcessed, adminNotes, processedAt: newProcessedAt };
       writeShiftSwapsFile(list);
-      return res.json({ id, rosterProcessed, processedAt });
+      return res.json({ id, rosterProcessed, adminNotes, processedAt: newProcessedAt });
     }
 
     try {
+      if (hasRoster && hasAdmin) {
+        const rows = await sql`
+          UPDATE shift_swap_requests
+          SET
+            roster_processed = ${req.body.rosterProcessed},
+            processed_at = CASE WHEN ${req.body.rosterProcessed} THEN NOW() ELSE NULL END,
+            admin_notes = ${req.body.adminNotes}
+          WHERE id = ${id}::uuid
+          RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
+        `;
+        if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+        return jsonVacationPatch(rows[0], res);
+      }
+      if (hasRoster) {
+        const rosterProcessed = req.body.rosterProcessed;
+        const rows = await sql`
+          UPDATE shift_swap_requests
+          SET
+            roster_processed = ${rosterProcessed},
+            processed_at = CASE WHEN ${rosterProcessed} THEN NOW() ELSE NULL END
+          WHERE id = ${id}::uuid
+          RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
+        `;
+        if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+        return jsonVacationPatch(rows[0], res);
+      }
+      const adminNotes = req.body.adminNotes;
       const rows = await sql`
         UPDATE shift_swap_requests
-        SET
-          roster_processed = ${rosterProcessed},
-          processed_at = CASE WHEN ${rosterProcessed} THEN NOW() ELSE NULL END
+        SET admin_notes = ${adminNotes}
         WHERE id = ${id}::uuid
-        RETURNING id, roster_processed AS "rosterProcessed", processed_at AS "processedAt"
+        RETURNING id, roster_processed AS "rosterProcessed", admin_notes AS "adminNotes", processed_at AS "processedAt"
       `;
       if (!rows.length) return res.status(404).json({ error: 'Not found.' });
-      const row = rows[0];
-      const processedAt =
-        row.processedAt == null
-          ? null
-          : row.processedAt instanceof Date
-            ? row.processedAt.toISOString()
-            : String(row.processedAt);
-      res.json({ id: row.id, rosterProcessed: Boolean(row.rosterProcessed), processedAt });
+      return jsonVacationPatch(rows[0], res);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Could not update shift swap request.' });
+    }
+  });
+
+  app.delete('/api/requests/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Missing id.' });
+    if (!useNeon) {
+      const list = readRequestsFile();
+      const i = list.findIndex((r) => r.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list.splice(i, 1);
+      writeRequestsFile(list);
+      return res.json({ ok: true });
+    }
+    try {
+      const rows = await sql`DELETE FROM vacation_requests WHERE id = ${id}::uuid RETURNING id`;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not delete request.' });
+    }
+  });
+
+  app.delete('/api/shift-swaps/:id', async (req, res) => {
+    const { id } = req.params;
+    if (!id) return res.status(400).json({ error: 'Missing id.' });
+    if (!useNeon) {
+      const list = readShiftSwapsFile();
+      const i = list.findIndex((s) => s.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list.splice(i, 1);
+      writeShiftSwapsFile(list);
+      return res.json({ ok: true });
+    }
+    try {
+      const rows = await sql`DELETE FROM shift_swap_requests WHERE id = ${id}::uuid RETURNING id`;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not delete shift swap request.' });
     }
   });
 
