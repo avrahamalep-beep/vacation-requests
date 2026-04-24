@@ -1,10 +1,11 @@
 :root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --border: #334155;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-  --accent: #38bdf8;
+  --bg: #f7fbf8;
+  --surface: #ffffff;
+  --border: #c7d8d0;
+  --text: #173f35;
+  --muted: #5e756d;
+  --accent: #006b5f;
+  --accent-2: #00a884;
   --warn: #fbbf24;
   --danger: #f87171;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -16,7 +17,9 @@
 
 body {
   margin: 0;
-  background: linear-gradient(160deg, #0f172a 0%, #1e1b4b 100%);
+  background:
+    radial-gradient(circle at top left, rgba(0, 168, 132, 0.16), transparent 32rem),
+    linear-gradient(160deg, #ffffff 0%, #edf7f2 48%, #dbeee6 100%);
   color: var(--text);
   min-height: 100vh;
 }
@@ -52,7 +55,7 @@ body {
 
 .shareLine code {
   font-size: 0.8rem;
-  background: #0f172a;
+  background: #edf7f2;
   padding: 0.2rem 0.45rem;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -83,6 +86,7 @@ body {
 .tabs button.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+  background: #e5f4ee;
 }
 
 .card {
@@ -91,6 +95,7 @@ body {
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
   margin-top: 1rem;
+  box-shadow: 0 12px 30px rgba(0, 85, 72, 0.08);
 }
 
 .card h2 {
@@ -101,7 +106,7 @@ body {
 .subhead {
   margin: 1.2rem 0 0.65rem;
   font-size: 1rem;
-  color: #cbd5e1;
+  color: #28594d;
 }
 
 .form .field {
@@ -123,7 +128,7 @@ textarea {
   padding: 0.55rem 0.65rem;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #0f172a;
+  background: #ffffff;
   color: var(--text);
 }
 
@@ -145,17 +150,17 @@ textarea {
 }
 
 .highlight {
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(0, 168, 132, 0.1);
+  border: 1px solid rgba(0, 107, 95, 0.28);
   padding: 0.65rem 0.85rem;
   border-radius: 8px;
   margin: 0 0 1rem;
 }
 
 .alert {
-  background: rgba(251, 191, 36, 0.12);
+  background: rgba(251, 191, 36, 0.18);
   border: 1px solid rgba(251, 191, 36, 0.45);
-  color: #fde68a;
+  color: #7c4a03;
   padding: 0.65rem 0.85rem;
   border-radius: 8px;
   margin-bottom: 1rem;
@@ -209,13 +214,14 @@ textarea {
   border-radius: 8px;
   border: 1px solid var(--border);
   cursor: pointer;
-  background: #334155;
+  background: #e5f4ee;
   color: var(--text);
 }
 
 .btn.primary {
-  background: linear-gradient(180deg, #0ea5e9, #0284c7);
-  border-color: #0369a1;
+  background: linear-gradient(180deg, #007f6d, #005e55);
+  border-color: #004f47;
+  color: #ffffff;
   font-weight: 600;
 }
 
@@ -232,7 +238,7 @@ textarea {
 .btn.danger {
   background: rgba(248, 113, 113, 0.12);
   border-color: rgba(248, 113, 113, 0.45);
-  color: #fecaca;
+  color: #991b1b;
 }
 
 .btn:disabled {
@@ -256,12 +262,12 @@ textarea {
   border-radius: 10px;
   padding: 1rem;
   margin-bottom: 0.85rem;
-  background: rgba(15, 23, 42, 0.5);
+  background: #fbfefc;
 }
 
 .inbox-item.item-done {
   border-color: rgba(52, 211, 153, 0.45);
-  background: rgba(6, 78, 59, 0.15);
+  background: rgba(0, 168, 132, 0.08);
 }
 
 .status-pill {
@@ -276,25 +282,25 @@ textarea {
 
 .status-pill.pending {
   background: rgba(251, 191, 36, 0.2);
-  color: #fde68a;
+  color: #854d0e;
   border: 1px solid rgba(251, 191, 36, 0.45);
 }
 
 .status-pill.done {
   background: rgba(52, 211, 153, 0.18);
-  color: #a7f3d0;
+  color: #047857;
   border: 1px solid rgba(52, 211, 153, 0.45);
 }
 
 .status-pill.status-accepted {
   background: rgba(52, 211, 153, 0.18);
-  color: #a7f3d0;
+  color: #047857;
   border: 1px solid rgba(52, 211, 153, 0.45);
 }
 
 .status-pill.status-rejected {
   background: rgba(248, 113, 113, 0.14);
-  color: #fecaca;
+  color: #991b1b;
   border: 1px solid rgba(248, 113, 113, 0.45);
 }
 
@@ -398,7 +404,7 @@ textarea {
   border-radius: 8px;
   padding: 4px 6px;
   font-size: 0.8rem;
-  background: rgba(15, 23, 42, 0.4);
+  background: rgba(255, 255, 255, 0.78);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -423,7 +429,7 @@ textarea {
 .badge {
   font-size: 0.68rem;
   line-height: 1.25;
-  color: #bae6fd;
+  color: #006b5f;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -433,7 +439,7 @@ textarea {
 .holiday-badge {
   font-size: 0.68rem;
   line-height: 1.25;
-  color: #ddd6fe;
+  color: #6d28d9;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -449,7 +455,7 @@ textarea {
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.35);
+  background: rgba(229, 244, 238, 0.7);
 }
 
 .field.inline {
@@ -473,7 +479,7 @@ textarea {
   padding: 0.35rem 0.5rem;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #0f172a;
+  background: #ffffff;
   color: var(--text);
 }
 
@@ -494,8 +500,8 @@ textarea {
   line-height: 1.2;
   padding: 2px 3px;
   border-radius: 4px;
-  background: rgba(14, 165, 233, 0.12);
-  border: 1px solid rgba(14, 165, 233, 0.25);
+  background: rgba(0, 168, 132, 0.1);
+  border: 1px solid rgba(0, 107, 95, 0.22);
 }
 
 .cal-line-swap {
@@ -505,7 +511,7 @@ textarea {
 
 .cal-line-title {
   font-weight: 600;
-  color: #e0f2fe;
+  color: #005e55;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -522,13 +528,13 @@ textarea {
 .deletion-banner {
   margin-bottom: 1rem;
   border-color: rgba(248, 113, 113, 0.35) !important;
-  background: rgba(127, 29, 29, 0.2) !important;
+  background: rgba(254, 226, 226, 0.9) !important;
 }
 
 .deletion-pre {
   margin: 0.5rem 0 0.75rem;
   padding: 0.65rem 0.75rem;
-  background: #0f172a;
+  background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 0.8rem;
@@ -554,7 +560,7 @@ textarea {
   padding: 0.45rem 0.55rem;
   border-radius: 6px;
   border: 1px solid var(--border);
-  background: #0f172a;
+  background: #ffffff;
   color: var(--text);
   font-size: 0.88rem;
   resize: vertical;
@@ -581,7 +587,7 @@ textarea {
   border: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
   vertical-align: middle;
-  background: rgba(15, 23, 42, 0.45);
+  background: #ffffff;
   min-width: 92px;
   text-align: center;
 }
@@ -589,7 +595,7 @@ textarea {
 .roster-table thead th,
 .roster-table tbody th {
   position: sticky;
-  background: #172033;
+  background: #e5f4ee;
   z-index: 2;
 }
 
