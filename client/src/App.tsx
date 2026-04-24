@@ -277,8 +277,8 @@ export default function App() {
             const sameOperator =
               r.operatorName.trim().toLowerCase() === employee ||
               rosterNameMatches(row.operatorName, r.operatorName, r.operatorEmail);
-            if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status === 'accepted') {
-              notes.push('Approved vacation');
+            if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status !== 'rejected') {
+              notes.push(`${r.status === 'accepted' ? 'Approved' : 'Requesting'} vacation`);
             }
           }
           for (const s of shiftSwaps) {
@@ -288,11 +288,12 @@ export default function App() {
             const isColleague =
               s.colleagueName.trim().toLowerCase() === employee ||
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
-            if (s.status === 'accepted' && ymd === s.rosterDate) {
-              if (isRequester || isColleague) notes.push(`${s.colleagueName} covers ${s.requesterName}`);
+            const swapState = s.status === 'accepted' ? 'Approved' : 'Requesting';
+            if (s.status !== 'rejected' && ymd === s.rosterDate) {
+              if (isRequester || isColleague) notes.push(`${swapState}: ${s.colleagueName} covers ${s.requesterName}`);
             }
-            if (s.status === 'accepted' && s.returnRosterDate && ymd === s.returnRosterDate) {
-              if (isRequester || isColleague) notes.push(`${s.requesterName} covers ${s.colleagueName}`);
+            if (s.status !== 'rejected' && s.returnRosterDate && ymd === s.returnRosterDate) {
+              if (isRequester || isColleague) notes.push(`${swapState}: ${s.requesterName} covers ${s.colleagueName}`);
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
