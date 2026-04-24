@@ -53,7 +53,12 @@ function rosterShiftClass(operatorName: string, value: string): string {
 
 function shortWeekday(ymd: string): string {
   const d = parseYmd(ymd);
-  return ['S', 'M', 'TU', 'W', 'TH', 'F', 'S'][d.getDay()] || '';
+  return ['SUN', 'M', 'TU', 'W', 'TH', 'F', 'SAT'][d.getDay()] || '';
+}
+
+function formatRosterDate(ymd: string): string {
+  const [y, m, d] = ymd.split('-');
+  return `${d}/${m}/${y}`;
 }
 
 export default function App() {
@@ -1508,7 +1513,7 @@ export default function App() {
                             .join(' ')}
                         >
                           <div className="roster-weekday">{shortWeekday(d)}</div>
-                          <div>{d}</div>
+                          <div>{formatRosterDate(d)}</div>
                           {holidaysByDate.has(d) && (
                             <div className="roster-holiday-label" title={holidaysByDate.get(d)}>
                               {holidaysByDate.get(d)}
