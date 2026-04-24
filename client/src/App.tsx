@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Operator, ShiftSwapRequest, VacationRequest } from './types';
+import type { Operator, RosterSnapshot, ShiftSwapRequest, VacationRequest } from './types';
 import {
   countBusinessDays,
   enumerateDays,
@@ -9,7 +9,8 @@ import {
 } from './utils';
 import { ISRAEL_HOLIDAYS } from './israelHolidays';
 
-type Tab = 'request' | 'shiftSwap' | 'inbox' | 'calendar';
+type RequestStatus = 'pending' | 'accepted' | 'rejected';
+type Tab = 'request' | 'shiftSwap' | 'inbox' | 'calendar' | 'roster';
 
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -26,6 +27,7 @@ export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
   const [shiftSwaps, setShiftSwaps] = useState<ShiftSwapRequest[]>([]);
+  const [roster, setRoster] = useState<RosterSnapshot | null>(null);
   const [tab, setTab] = useState<Tab>('request');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export default function App() {
   const [calFilterFrom, setCalFilterFrom] = useState('');
   const [calFilterTo, setCalFilterTo] = useState('');
   const [calNameFilter, setCalNameFilter] = useState('');
+  const [rosterUploading, setRosterUploading] = useState(false);
 
   const [emailTo, setEmailTo] = useState<Record<string, boolean>>({});
 
@@ -88,15 +91,17 @@ export default function App() {
     const ctl = new AbortController();
     const t = window.setTimeout(() => ctl.abort(), 12000);
     try {
-      const [opRes, reqRes, swapRes] = await Promise.all([
+      const [opRes, reqRes, swapRes, rosterRes] = await Promise.all([
         fetch(`${API}/api/operators`, { signal: ctl.signal }),
         fetch(`${API}/api/requests`, { signal: ctl.signal }),
         fetch(`${API}/api/shift-swaps`, { signal: ctl.signal }),
+        fetch(`${API}/api/roster`, { signal: ctl.signal }),
       ]);
-      const [opsRaw, reqsRaw, swapsRaw] = await Promise.all([
+      const [opsRaw, reqsRaw, swapsRaw, rosterRaw] = await Promise.all([
         opRes.json(),
         reqRes.json(),
         swapRes.json(),
+        rosterRes.json(),
       ]);
       const ops = Array.isArray(opsRaw) ? (opsRaw as Operator[]) : [];
       const reqs = Array.isArray(reqsRaw) ? (reqsRaw as VacationRequest[]) : [];
@@ -105,6 +110,7 @@ export default function App() {
       if (!opRes.ok) parts.push('operators');
       if (!reqRes.ok) parts.push('vacation requests');
       if (!swapRes.ok) parts.push('shift swaps');
+      if (!rosterRes.ok) parts.push('roster');
       if (parts.length) {
         setLoadError(
           `API returned an error for: ${parts.join(', ')}. If you use Neon, run server/schema.sql in the Neon SQL editor.`
@@ -113,6 +119,7 @@ export default function App() {
       setOperators(ops);
       setRequests(reqs);
       setShiftSwaps(swaps);
+      setRoster(rosterRaw && typeof rosterRaw === 'object' ? (rosterRaw as RosterSnapshot) : null);
       const map: Record<string, boolean> = {};
       for (const o of ops) map[o.email] = false;
       setEmailTo(map);
@@ -125,6 +132,7 @@ export default function App() {
       setOperators([]);
       setRequests([]);
       setShiftSwaps([]);
+      setRoster(null);
       setEmailTo({});
     } finally {
       window.clearTimeout(t);
@@ -188,6 +196,37 @@ export default function App() {
     }
     return m;
   }, [filteredCalendarRequests, filteredCalendarSwaps]);
+
+  const rosterWithRequests = useMemo(() => {
+    if (!roster) return null;
+    return {
+      ...roster,
+      rows: roster.rows.map((row) => ({
+        ...row,
+        cells: row.cells.map((cell, i) => {
+          const ymd = roster.dates[i];
+          const employee = row.operatorName.trim().toLowerCase();
+          const notes: string[] = [];
+          for (const r of requests) {
+            const sameOperator =
+              r.operatorName.trim().toLowerCase() === employee ||
+              r.operatorEmail.toLowerCase().includes(employee.replace(/\s+/g, '.'));
+            if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status !== 'rejected') {
+              notes.push(`Vacation (${r.status || 'pending'}): ${r.operatorName}${r.notes ? ` - ${r.notes}` : ''}`);
+            }
+          }
+          for (const s of shiftSwaps) {
+            const sameOperator =
+              s.requesterName.trim().toLowerCase() === employee || s.colleagueName.trim().toLowerCase() === employee;
+            if (sameOperator && ymd === s.rosterDate && s.status !== 'rejected') {
+              notes.push(`Swap (${s.status || 'pending'}): ${s.requesterName} ↔ ${s.colleagueName}`);
+            }
+          }
+          return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
+        }),
+      })),
+    };
+  }, [requests, roster, shiftSwaps]);
 
   const holidaysByDate = useMemo(() => {
     const map = new Map<string, string>();
@@ -336,6 +375,93 @@ export default function App() {
   function openWhatsAppShiftSwap(s: ShiftSwapRequest) {
     const text = encodeURIComponent(buildShiftSwapRequestBody(s));
     window.open(`https://wa.me/?text=${text}`, '_blank', 'noopener,noreferrer');
+  }
+
+  function buildDecisionVacationBody(req: VacationRequest, status: RequestStatus): string {
+    return [
+      `Hello ${req.operatorName},`,
+      '',
+      `Your vacation request (${req.startDate} → ${req.endDate}) was ${status}.`,
+      req.adminNotes ? `Admin note: ${req.adminNotes}` : '',
+      '',
+      'If you have questions, reply to the roster owner.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  function buildDecisionSwapBody(s: ShiftSwapRequest, status: RequestStatus): string {
+    return [
+      `Hello ${s.requesterName} and ${s.colleagueName},`,
+      '',
+      `Your shift swap request for ${s.rosterDate} (${s.currentShift} → ${s.requestedShift}) was ${status}.`,
+      s.adminNotes ? `Admin note: ${s.adminNotes}` : '',
+      '',
+      'If you have questions, reply to the roster owner.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  async function setVacationStatus(req: VacationRequest, status: RequestStatus, notifyEmail = false) {
+    setPatchBusyId(req.id);
+    try {
+      const res = await fetch(`${API}/api/requests/${encodeURIComponent(req.id)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error('status');
+      setRequests((prev) => prev.map((r) => (r.id === req.id ? { ...r, status } : r)));
+      if (notifyEmail) {
+        const subject = encodeURIComponent(`Vacation request ${status} (${req.startDate}–${req.endDate})`);
+        const body = encodeURIComponent(buildDecisionVacationBody({ ...req, status }, status));
+        window.location.href = `mailto:${req.operatorEmail}?subject=${subject}&body=${body}`;
+      }
+    } catch {
+      alert('Could not update status. Check API and database.');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  async function setShiftSwapStatus(s: ShiftSwapRequest, status: RequestStatus, notifyEmail = false) {
+    setPatchBusyId(s.id);
+    try {
+      const res = await fetch(`${API}/api/shift-swaps/${encodeURIComponent(s.id)}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error('status');
+      setShiftSwaps((prev) => prev.map((x) => (x.id === s.id ? { ...x, status } : x)));
+      if (notifyEmail) {
+        const subject = encodeURIComponent(`Shift swap ${status} (${s.rosterDate})`);
+        const body = encodeURIComponent(buildDecisionSwapBody({ ...s, status }, status));
+        window.location.href = `mailto:${s.requesterEmail};${s.colleagueEmail}?subject=${subject}&body=${body}`;
+      }
+    } catch {
+      alert('Could not update status. Check API and database.');
+    } finally {
+      setPatchBusyId(null);
+    }
+  }
+
+  async function uploadRoster(file: File | null) {
+    if (!file) return;
+    setRosterUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('roster', file);
+      const res = await fetch(`${API}/api/roster`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('roster');
+      setRoster((await res.json()) as RosterSnapshot);
+      setTab('roster');
+    } catch {
+      alert('Could not upload roster. Expected Excel with dates in row 2 and operators in A3:A12.');
+    } finally {
+      setRosterUploading(false);
+    }
   }
 
   function buildRosterProcessedVacationBody(req: VacationRequest): string {
@@ -679,6 +805,9 @@ export default function App() {
           <button type="button" className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}>
             Calendar
           </button>
+          <button type="button" className={tab === 'roster' ? 'active' : ''} onClick={() => setTab('roster')}>
+            Roster view
+          </button>
         </nav>
       </header>
 
@@ -953,6 +1082,7 @@ export default function App() {
                 <div className="inbox-head">
                   <div>
                     <strong>{r.operatorName}</strong>
+                    <span className={`status-pill status-${r.status || 'pending'}`}>{r.status || 'pending'}</span>
                     <span className={`status-pill ${r.rosterProcessed ? 'done' : 'pending'}`}>
                       {r.rosterProcessed ? 'Processed in roster' : 'Pending roster update'}
                     </span>
@@ -1025,6 +1155,25 @@ export default function App() {
                     WhatsApp — request
                   </button>
                 </div>
+                <p className="actions-label">Decision</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={patchBusyId === r.id}
+                    onClick={() => void setVacationStatus(r, 'accepted', true)}
+                  >
+                    Accepted + email
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={patchBusyId === r.id}
+                    onClick={() => void setVacationStatus(r, 'rejected', true)}
+                  >
+                    Rejected + email
+                  </button>
+                </div>
                 <p className="actions-label">Tell the requester it is done in the roster</p>
                 <div className="actions">
                   <button type="button" className="btn secondary" onClick={() => openMailtoRosterProcessedVacation(r)}>
@@ -1059,6 +1208,7 @@ export default function App() {
                 <div className="inbox-head">
                   <div>
                     <strong>{s.requesterName}</strong>
+                    <span className={`status-pill status-${s.status || 'pending'}`}>{s.status || 'pending'}</span>
                     <span className={`status-pill ${s.rosterProcessed ? 'done' : 'pending'}`}>
                       {s.rosterProcessed ? 'Processed in roster' : 'Pending roster update'}
                     </span>
@@ -1120,6 +1270,25 @@ export default function App() {
                   </button>
                   <button type="button" className="btn secondary" onClick={() => openWhatsAppShiftSwap(s)}>
                     WhatsApp — request
+                  </button>
+                </div>
+                <p className="actions-label">Decision</p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={patchBusyId === s.id}
+                    onClick={() => void setShiftSwapStatus(s, 'accepted', true)}
+                  >
+                    Accepted + email
+                  </button>
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    disabled={patchBusyId === s.id}
+                    onClick={() => void setShiftSwapStatus(s, 'rejected', true)}
+                  >
+                    Rejected + email
                   </button>
                 </div>
                 <p className="actions-label">Tell both operators it is done in the roster</p>
@@ -1230,6 +1399,75 @@ export default function App() {
               )
             )}
           </div>
+        </section>
+      )}
+
+      {tab === 'roster' && (
+        <section className="card">
+          <h2>Roster Excel view</h2>
+          <p className="muted">
+            Upload the current roster workbook. The parser expects operator names in <strong>A3:A12</strong> and dates
+            in row <strong>2</strong> from <strong>B2</strong>. Cells become yellow when there is an active vacation or
+            shift swap request for that operator/date.
+          </p>
+          <label className="field">
+            <span>Upload / update roster document</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.xlsm"
+              disabled={rosterUploading}
+              onChange={(e) => void uploadRoster(e.target.files?.[0] || null)}
+            />
+            <span className="hint">
+              Uploading a newer document replaces the current view. The original Excel file is parsed and stored as data
+              so Render can show it later.
+            </span>
+          </label>
+          {rosterWithRequests ? (
+            <>
+              <p className="hint">
+                Current file: <strong>{rosterWithRequests.originalName}</strong> · uploaded{' '}
+                {new Date(rosterWithRequests.uploadedAt).toLocaleString()}
+              </p>
+              <div className="roster-scroll">
+                <table className="roster-table">
+                  <thead>
+                    <tr>
+                      <th>Operator</th>
+                      {rosterWithRequests.dates.map((d) => (
+                        <th key={d}>{d}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rosterWithRequests.rows.map((row) => (
+                      <tr key={row.operatorName}>
+                        <th>{row.operatorName}</th>
+                        {row.cells.map((cell, i) => (
+                          <td
+                            key={`${row.operatorName}-${rosterWithRequests.dates[i]}`}
+                            className={cell.hasRequest ? 'roster-request-cell' : ''}
+                            title={cell.requestNotes.join('\n')}
+                          >
+                            <div className="roster-cell-value">{cell.value || '—'}</div>
+                            {cell.hasRequest && (
+                              <div className="roster-cell-note">
+                                {cell.requestNotes.slice(0, 2).map((n) => (
+                                  <div key={n}>{n}</div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <p className="muted">No roster uploaded yet.</p>
+          )}
         </section>
       )}
     </div>

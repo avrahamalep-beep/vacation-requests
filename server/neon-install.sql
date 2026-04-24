@@ -61,6 +61,15 @@ CREATE INDEX IF NOT EXISTS idx_shift_swap_requests_created_at ON shift_swap_requ
 CREATE INDEX IF NOT EXISTS idx_shift_swap_attachments_request ON shift_swap_attachments (request_id);
 CREATE INDEX IF NOT EXISTS idx_shift_swap_requests_roster_date ON shift_swap_requests (roster_date);
 
+CREATE TABLE IF NOT EXISTS roster_snapshots (
+  id SERIAL PRIMARY KEY,
+  original_name TEXT NOT NULL,
+  rows_json JSONB NOT NULL,
+  uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_roster_snapshots_uploaded_at ON roster_snapshots (uploaded_at DESC);
+
 -- Bases creadas antes: añadir columnas que faltan (no falla si ya existen)
 ALTER TABLE vacation_requests
   ADD COLUMN IF NOT EXISTS conflict_warnings JSONB NOT NULL DEFAULT '[]'::jsonb,

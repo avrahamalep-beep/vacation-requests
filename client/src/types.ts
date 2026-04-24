@@ -25,7 +25,7 @@ export type VacationRequest = {
   attachments: Attachment[];
   conflictWarnings: ConflictWarning[];
   createdAt: string;
-  status: string;
+  status: 'pending' | 'accepted' | 'rejected' | string;
   rosterProcessed?: boolean;
   processedAt?: string | null;
 };
@@ -45,7 +45,25 @@ export type ShiftSwapRequest = {
   adminNotes?: string;
   attachments?: Attachment[];
   createdAt: string;
-  status: string;
+  status: 'pending' | 'accepted' | 'rejected' | string;
   rosterProcessed?: boolean;
   processedAt?: string | null;
+};
+
+export type RosterCell = {
+  value: string;
+  hasRequest: boolean;
+  requestNotes: string[];
+};
+
+export type RosterRow = {
+  operatorName: string;
+  cells: RosterCell[];
+};
+
+export type RosterSnapshot = {
+  originalName: string;
+  uploadedAt: string;
+  dates: string[];
+  rows: RosterRow[];
 };

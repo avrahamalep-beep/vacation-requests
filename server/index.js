@@ -6,12 +6,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
 const uploadsDir = path.join(root, 'server', 'uploads');
 const dataPath = path.join(root, 'server', 'data', 'requests.json');
 const shiftSwapDataPath = path.join(root, 'server', 'data', 'shiftSwaps.json');
+const rosterDataPath = path.join(root, 'server', 'data', 'roster.json');
 
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
@@ -94,6 +96,21 @@ function writeShiftSwapsFile(list) {
   fs.writeFileSync(shiftSwapDataPath, JSON.stringify(list, null, 2), 'utf8');
 }
 
+function readRosterFile() {
+  try {
+    if (!fs.existsSync(path.dirname(rosterDataPath))) fs.mkdirSync(path.dirname(rosterDataPath), { recursive: true });
+    if (!fs.existsSync(rosterDataPath)) fs.writeFileSync(rosterDataPath, 'null', 'utf8');
+    return JSON.parse(fs.readFileSync(rosterDataPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeRosterFile(snapshot) {
+  if (!fs.existsSync(path.dirname(rosterDataPath))) fs.mkdirSync(path.dirname(rosterDataPath), { recursive: true });
+  fs.writeFileSync(rosterDataPath, JSON.stringify(snapshot, null, 2), 'utf8');
+}
+
 function parseYmd(s) {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);
@@ -126,6 +143,53 @@ function toYmd(v) {
   if (typeof v === 'string') return v.slice(0, 10);
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);
+}
+
+function excelDateToYmd(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date) return toYmd(value);
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) {
+      return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`;
+    }
+  }
+  const s = String(value).trim();
+  const iso = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
+  const dmy = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (dmy) {
+    const y = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
+    return `${y}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+  }
+  return s;
+}
+
+function parseRosterWorkbook(filePath, originalName) {
+  const wb = XLSX.readFile(filePath, { cellDates: true });
+  const firstSheet = wb.Sheets[wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true, blankrows: false });
+  const dateRow = grid[1] || [];
+  const dates = [];
+  for (let c = 1; c < dateRow.length; c++) {
+    const ymd = excelDateToYmd(dateRow[c]);
+    if (ymd) dates.push(ymd);
+  }
+  const rows = [];
+  for (let r = 2; r < Math.min(grid.length, 12); r++) {
+    const row = grid[r] || [];
+    const operatorName = String(row[0] || '').trim();
+    if (!operatorName) continue;
+    rows.push({
+      operatorName,
+      cells: dates.map((_, i) => ({
+        value: row[i + 1] == null ? '' : String(row[i + 1]).trim(),
+        hasRequest: false,
+        requestNotes: [],
+      })),
+    });
+  }
+  return { originalName, uploadedAt: new Date().toISOString(), dates, rows };
 }
 
 function normalizeVacationRow(r) {
@@ -182,6 +246,7 @@ async function main() {
     console.warn(
       'DATABASE_URL not set — using local JSON (server/data/requests.json). Add DATABASE_URL in .env for Neon.'
     );
+    readRosterFile();
   }
 
   app.get('/api/requests', async (_req, res) => {
@@ -701,6 +766,107 @@ async function main() {
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Could not update shift swap request.' });
+    }
+  });
+
+  app.patch('/api/requests/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const status = String(req.body?.status || '');
+    if (!['pending', 'accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be pending, accepted, or rejected.' });
+    }
+    if (!useNeon) {
+      const list = readRequestsFile();
+      const i = list.findIndex((r) => r.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list[i] = { ...list[i], status };
+      writeRequestsFile(list);
+      return res.json({ id, status });
+    }
+    try {
+      const rows = await sql`
+        UPDATE vacation_requests
+        SET status = ${status}
+        WHERE id = ${id}::uuid
+        RETURNING id, status
+      `;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ id: rows[0].id, status: rows[0].status });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not update request status.' });
+    }
+  });
+
+  app.patch('/api/shift-swaps/:id/status', async (req, res) => {
+    const { id } = req.params;
+    const status = String(req.body?.status || '');
+    if (!['pending', 'accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({ error: 'Status must be pending, accepted, or rejected.' });
+    }
+    if (!useNeon) {
+      const list = readShiftSwapsFile();
+      const i = list.findIndex((s) => s.id === id);
+      if (i === -1) return res.status(404).json({ error: 'Not found.' });
+      list[i] = { ...list[i], status };
+      writeShiftSwapsFile(list);
+      return res.json({ id, status });
+    }
+    try {
+      const rows = await sql`
+        UPDATE shift_swap_requests
+        SET status = ${status}
+        WHERE id = ${id}::uuid
+        RETURNING id, status
+      `;
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      res.json({ id: rows[0].id, status: rows[0].status });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not update shift swap status.' });
+    }
+  });
+
+  app.get('/api/roster', async (_req, res) => {
+    if (!useNeon) return res.json(readRosterFile());
+    try {
+      const rows = await sql`
+        SELECT original_name AS "originalName", rows_json AS "snapshot", uploaded_at AS "uploadedAt"
+        FROM roster_snapshots
+        ORDER BY uploaded_at DESC
+        LIMIT 1
+      `;
+      if (!rows.length) return res.json(null);
+      res.json({
+        ...rows[0].snapshot,
+        originalName: rows[0].originalName,
+        uploadedAt: rows[0].uploadedAt instanceof Date ? rows[0].uploadedAt.toISOString() : String(rows[0].uploadedAt),
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not load roster.' });
+    }
+  });
+
+  app.post('/api/roster', upload.single('roster'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Upload an Excel file.' });
+    try {
+      const snapshot = parseRosterWorkbook(req.file.path, req.file.originalname);
+      if (!snapshot.dates.length || !snapshot.rows.length) {
+        return res.status(400).json({ error: 'Could not read roster. Expected dates in row 2 and operators in A3:A12.' });
+      }
+      if (!useNeon) {
+        writeRosterFile(snapshot);
+        return res.status(201).json(snapshot);
+      }
+      await sql`
+        INSERT INTO roster_snapshots (original_name, rows_json)
+        VALUES (${snapshot.originalName}, ${JSON.stringify(snapshot)}::jsonb)
+      `;
+      res.status(201).json(snapshot);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Could not parse roster workbook.' });
     }
   });
 
