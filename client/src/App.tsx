@@ -222,7 +222,8 @@ export default function App() {
         const blob = `${s.requesterName} ${s.colleagueName} ${s.requesterEmail} ${s.colleagueEmail}`.toLowerCase();
         if (!blob.includes(q)) return false;
       }
-      if (calFilterFrom && s.rosterDate < calFilterFrom) return false;
+      const swapEnd = s.returnRosterDate || s.rosterDate;
+      if (calFilterFrom && swapEnd < calFilterFrom) return false;
       if (calFilterTo && s.rosterDate > calFilterTo) return false;
       return true;
     });
@@ -242,14 +243,22 @@ export default function App() {
       }
     }
     for (const s of filteredCalendarSwaps) {
-      const day = s.rosterDate;
-      if (!m.has(day)) m.set(day, []);
-      const noteParts = [s.details, s.adminNotes].map((x) => (x || '').trim()).filter(Boolean);
-      m.get(day)!.push({
+      if (s.status === 'rejected') continue;
+      const noteParts = [s.status || 'pending', s.details, s.adminNotes].map((x) => (x || '').trim()).filter(Boolean);
+      if (!m.has(s.rosterDate)) m.set(s.rosterDate, []);
+      m.get(s.rosterDate)!.push({
         kind: 'swap',
-        title: `Swap: ${s.requesterName}↔${s.colleagueName}`,
-        note: noteParts.length ? noteParts.join(' · ') : '—',
+        title: `${s.colleagueName} covers ${s.requesterName}`,
+        note: `${s.currentShift}${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
       });
+      if (s.returnRosterDate) {
+        if (!m.has(s.returnRosterDate)) m.set(s.returnRosterDate, []);
+        m.get(s.returnRosterDate)!.push({
+          kind: 'swap',
+          title: `${s.requesterName} covers ${s.colleagueName}`,
+          note: `${s.requestedShift}${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
+        });
+      }
     }
     return m;
   }, [filteredCalendarRequests, filteredCalendarSwaps]);
@@ -273,18 +282,17 @@ export default function App() {
             }
           }
           for (const s of shiftSwaps) {
-            const sameOperator =
+            const isRequester =
               s.requesterName.trim().toLowerCase() === employee ||
+              rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail);
+            const isColleague =
               s.colleagueName.trim().toLowerCase() === employee ||
-              rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail) ||
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
             if (s.status === 'accepted' && ymd === s.rosterDate) {
-              if (rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail)) notes.push('Free - covered');
-              if (rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail)) notes.push('Covers colleague');
+              if (isRequester || isColleague) notes.push(`${s.colleagueName} covers ${s.requesterName}`);
             }
             if (s.status === 'accepted' && s.returnRosterDate && ymd === s.returnRosterDate) {
-              if (rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail)) notes.push('Works instead');
-              if (rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail)) notes.push('Free - covered');
+              if (isRequester || isColleague) notes.push(`${s.requesterName} covers ${s.colleagueName}`);
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
