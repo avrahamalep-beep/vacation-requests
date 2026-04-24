@@ -1501,9 +1501,19 @@ export default function App() {
                     <tr>
                       <th>Operator</th>
                       {visibleRoster!.dates.map((d) => (
-                        <th key={d} className={d === todayYmd ? 'roster-today-col' : ''}>
+                        <th
+                          key={d}
+                          className={[d === todayYmd ? 'roster-today-col' : '', holidaysByDate.has(d) ? 'roster-holiday-col' : '']
+                            .filter(Boolean)
+                            .join(' ')}
+                        >
                           <div className="roster-weekday">{shortWeekday(d)}</div>
                           <div>{d}</div>
+                          {holidaysByDate.has(d) && (
+                            <div className="roster-holiday-label" title={holidaysByDate.get(d)}>
+                              {holidaysByDate.get(d)}
+                            </div>
+                          )}
                         </th>
                       ))}
                     </tr>
@@ -1525,6 +1535,7 @@ export default function App() {
                               rosterShiftClass(row.operatorName, cell.value),
                               cell.hasRequest ? 'roster-request-cell' : '',
                               visibleRoster!.dates[i] === todayYmd ? 'roster-today-col' : '',
+                              holidaysByDate.has(visibleRoster!.dates[i]) ? 'roster-holiday-col' : '',
                             ]
                               .filter(Boolean)
                               .join(' ')}
