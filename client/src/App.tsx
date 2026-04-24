@@ -1449,7 +1449,7 @@ export default function App() {
       )}
 
       {tab === 'roster' && (
-        <section className="card">
+        <section className="card roster-card">
           <h2>Roster Excel view</h2>
           <p className="muted">
             Upload the current roster workbook. The parser expects operator names in <strong>A3:A12</strong> and dates

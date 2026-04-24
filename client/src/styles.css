@@ -25,10 +25,14 @@ body {
 }
 
 .shell {
-  max-width: 880px;
+  max-width: 980px;
   margin: 0 auto;
   padding: 1.25rem;
   padding-bottom: 3rem;
+}
+
+.shell:has(.roster-card) {
+  max-width: min(1540px, 100vw);
 }
 
 .header h1 {
@@ -572,23 +576,26 @@ textarea {
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
-  max-height: 70vh;
+  max-height: 72vh;
 }
 
 .roster-table {
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  table-layout: fixed;
 }
 
 .roster-table th,
 .roster-table td {
   border: 1px solid var(--border);
-  padding: 0.4rem 0.5rem;
+  padding: 0.24rem 0.32rem;
   vertical-align: middle;
   background: #ffffff;
-  min-width: 92px;
+  min-width: 78px;
+  max-width: 96px;
+  width: 84px;
   text-align: center;
 }
 
@@ -606,7 +613,12 @@ textarea {
 .roster-table tbody th {
   left: 0;
   text-align: left;
-  min-width: 150px;
+  min-width: 118px;
+  max-width: 140px;
+  width: 126px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .roster-table thead th:first-child {
@@ -625,15 +637,21 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 1.2rem;
 }
 
 .roster-cell-note {
-  margin-top: 0.25rem;
-  font-size: 0.68rem;
-  line-height: 1.25;
+  margin-top: 0.12rem;
+  font-size: 0.58rem;
+  line-height: 1.08;
   color: inherit;
   font-weight: 600;
   text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .roster-filters {
