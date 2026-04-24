@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS shift_swap_requests (
   colleague_name TEXT NOT NULL,
   colleague_email TEXT NOT NULL,
   roster_date DATE NOT NULL,
+  return_roster_date DATE,
   current_shift TEXT NOT NULL CHECK (current_shift IN ('morning', 'night')),
   requested_shift TEXT NOT NULL CHECK (requested_shift IN ('morning', 'night')),
   details TEXT NOT NULL DEFAULT '',

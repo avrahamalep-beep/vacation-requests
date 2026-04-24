@@ -39,6 +39,7 @@ export type ShiftSwapRequest = {
   colleagueName: string;
   colleagueEmail: string;
   rosterDate: string;
+  returnRosterDate?: string;
   currentShift: ShiftType;
   requestedShift: ShiftType;
   details: string;

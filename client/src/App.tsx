@@ -87,6 +87,7 @@ export default function App() {
   const [swapRequesterEmail, setSwapRequesterEmail] = useState('');
   const [swapColleagueEmail, setSwapColleagueEmail] = useState('');
   const [swapRosterDate, setSwapRosterDate] = useState('');
+  const [swapReturnRosterDate, setSwapReturnRosterDate] = useState('');
   const [swapCurrentShift, setSwapCurrentShift] = useState<'morning' | 'night'>('morning');
   const [swapRequestedShift, setSwapRequestedShift] = useState<'morning' | 'night'>('night');
   const [swapDetails, setSwapDetails] = useState('');
@@ -277,8 +278,13 @@ export default function App() {
               s.colleagueName.trim().toLowerCase() === employee ||
               rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail) ||
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
-            if (sameOperator && ymd === s.rosterDate && s.status === 'accepted') {
-              notes.push('Approved swap');
+            if (s.status === 'accepted' && ymd === s.rosterDate) {
+              if (rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail)) notes.push('Free - covered');
+              if (rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail)) notes.push('Covers colleague');
+            }
+            if (s.status === 'accepted' && s.returnRosterDate && ymd === s.returnRosterDate) {
+              if (rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail)) notes.push('Works instead');
+              if (rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail)) notes.push('Free - covered');
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
@@ -374,6 +380,7 @@ export default function App() {
       fd.append('colleagueName', swapColleague.name);
       fd.append('colleagueEmail', swapColleague.email);
       fd.append('rosterDate', swapRosterDate);
+      fd.append('returnRosterDate', swapReturnRosterDate);
       fd.append('currentShift', swapCurrentShift);
       fd.append('requestedShift', swapRequestedShift);
       fd.append('details', swapDetails.trim());
@@ -384,6 +391,7 @@ export default function App() {
       setShiftSwaps((prev) => [created, ...prev]);
       setSwapColleagueEmail('');
       setSwapRosterDate('');
+      setSwapReturnRosterDate('');
       setSwapCurrentShift('morning');
       setSwapRequestedShift('night');
       setSwapDetails('');
@@ -432,8 +440,8 @@ export default function App() {
     return [
       `Shift swap request — ${s.requesterName}`,
       `With: ${s.colleagueName}`,
-      `Roster date: ${s.rosterDate}`,
-      `Change: ${s.currentShift} → ${s.requestedShift}`,
+      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
+      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
       s.details ? `Details: ${s.details}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
@@ -476,7 +484,9 @@ export default function App() {
     return [
       `Hello ${s.requesterName} and ${s.colleagueName},`,
       '',
-      `Your shift swap request for ${s.rosterDate} (${s.currentShift} → ${s.requestedShift}) was ${status}.`,
+      `Your shift swap request was ${status}.`,
+      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
+      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
       s.adminNotes ? `Admin note: ${s.adminNotes}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
@@ -589,17 +599,17 @@ export default function App() {
     }
   }
 
-  async function saveShiftSwapSchedule(s: ShiftSwapRequest, rosterDate: string) {
+  async function saveShiftSwapSchedule(s: ShiftSwapRequest, rosterDate: string, returnRosterDate = s.returnRosterDate || '') {
     if (!rosterDate) return;
     setPatchBusyId(s.id);
     try {
       const res = await fetch(`${API}/api/shift-swaps/${encodeURIComponent(s.id)}/schedule`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rosterDate }),
+        body: JSON.stringify({ rosterDate, returnRosterDate }),
       });
       if (!res.ok) throw new Error('schedule');
-      setShiftSwaps((prev) => prev.map((x) => (x.id === s.id ? { ...x, rosterDate } : x)));
+      setShiftSwaps((prev) => prev.map((x) => (x.id === s.id ? { ...x, rosterDate, returnRosterDate } : x)));
       setStatusNotice('Date updated. Re-check Roster view after refresh / next load.');
     } catch {
       alert('Could not update shift swap date.');
@@ -624,7 +634,9 @@ export default function App() {
     return [
       `Hello ${s.requesterName} and ${s.colleagueName},`,
       '',
-      `Your shift swap for ${s.rosterDate} (${s.currentShift} → ${s.requestedShift}) has been accepted and updated in the published roster.`,
+      `Your shift swap has been accepted and updated in the published roster.`,
+      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
+      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
       s.details ? `Original request: ${s.details}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
@@ -1126,7 +1138,7 @@ export default function App() {
 
             <div className="row">
               <label className="field">
-                <span>Roster date</span>
+                <span>Date you need free</span>
                 <input
                   type="date"
                   required
@@ -1134,9 +1146,20 @@ export default function App() {
                   onChange={(e) => setSwapRosterDate(e.target.value)}
                 />
               </label>
+              <label className="field">
+                <span>Date you will work for colleague</span>
+                <input
+                  type="date"
+                  required
+                  value={swapReturnRosterDate}
+                  onChange={(e) => setSwapReturnRosterDate(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="row">
               <div className="row">
                 <label className="field">
-                  <span>Current shift</span>
+                  <span>Your shift to cover</span>
                   <select
                     value={swapCurrentShift}
                     onChange={(e) => setSwapCurrentShift(e.target.value as 'morning' | 'night')}
@@ -1146,7 +1169,7 @@ export default function App() {
                   </select>
                 </label>
                 <label className="field">
-                  <span>Requested shift</span>
+                  <span>Colleague shift you will work</span>
                   <select
                     value={swapRequestedShift}
                     onChange={(e) => setSwapRequestedShift(e.target.value as 'morning' | 'night')}
@@ -1180,23 +1203,19 @@ export default function App() {
               <span className="hint">Same as vacation: stored on the server (max ~12 MB per file).</span>
             </label>
 
-            {(swapRequesterEmail && swapColleagueEmail && swapRequesterEmail === swapColleagueEmail) ||
-            swapCurrentShift === swapRequestedShift ? (
+            {swapRequesterEmail && swapColleagueEmail && swapRequesterEmail === swapColleagueEmail ? (
               <div className="alert" role="status">
                 {swapRequesterEmail && swapColleagueEmail && swapRequesterEmail === swapColleagueEmail && (
                   <p>Requester and colleague must be different operators.</p>
-                )}
-                {swapCurrentShift === swapRequestedShift && (
-                  <p>Current and requested shifts cannot be the same.</p>
                 )}
               </div>
             ) : null}
 
             <p className="highlight">
               <strong>Request preview:</strong>{' '}
-              {swapRequester?.name || 'Requester'} asks {swapColleague?.name || 'Colleague'} to swap{' '}
-              {swapCurrentShift} → {swapRequestedShift}
-              {swapRosterDate ? ` on ${swapRosterDate}` : ''}.
+              {swapColleague?.name || 'Colleague'} covers {swapRequester?.name || 'Requester'} on{' '}
+              {swapRosterDate || 'first date'} ({swapCurrentShift}); {swapRequester?.name || 'Requester'} works for{' '}
+              {swapColleague?.name || 'Colleague'} on {swapReturnRosterDate || 'second date'} ({swapRequestedShift}).
             </p>
 
             <button type="submit" className="btn primary" disabled={swapSubmitting}>
@@ -1419,9 +1438,21 @@ export default function App() {
                       }}
                     />
                   </label>
+                  <label>
+                    <span>Return date</span>
+                    <input
+                      type="date"
+                      defaultValue={s.returnRosterDate || ''}
+                      disabled={patchBusyId === s.id}
+                      onBlur={(e) => {
+                        if (e.target.value === (s.returnRosterDate || '')) return;
+                        void saveShiftSwapSchedule(s, s.rosterDate, e.target.value);
+                      }}
+                    />
+                  </label>
                 </div>
                 <p>
-                  Change needed: <strong>{s.currentShift}</strong> → <strong>{s.requestedShift}</strong>
+                  Exchange: <strong>{s.currentShift}</strong> on requester date / <strong>{s.requestedShift}</strong> on return date
                 </p>
                 {s.details && <p className="notes">{s.details}</p>}
                 {s.attachments && s.attachments.length > 0 && (

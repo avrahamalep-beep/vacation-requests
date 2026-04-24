@@ -340,6 +340,7 @@ async function main() {
             s.colleague_name AS "colleagueName",
             s.colleague_email AS "colleagueEmail",
             s.roster_date AS "rosterDate",
+            s.return_roster_date AS "returnRosterDate",
             s.current_shift AS "currentShift",
             s.requested_shift AS "requestedShift",
             s.details,
@@ -369,6 +370,7 @@ async function main() {
             normalizeShiftSwapRow({
               ...row,
               rosterDate: toYmd(row.rosterDate),
+              returnRosterDate: toYmd(row.returnRosterDate),
               adminNotes: row.adminNotes ?? '',
               attachments: normalizeAttachments(row.attachments),
               rosterProcessed: row.rosterProcessed,
@@ -524,6 +526,7 @@ async function main() {
     const colleagueName = body.colleagueName || '';
     const colleagueEmail = body.colleagueEmail || '';
     const rosterDate = body.rosterDate || '';
+    const returnRosterDate = body.returnRosterDate || null;
     const currentShift = body.currentShift || '';
     const requestedShift = body.requestedShift || '';
     const details = body.details || '';
@@ -540,10 +543,6 @@ async function main() {
     if (requesterEmail === colleagueEmail) {
       return res.status(400).json({ error: 'Requester and colleague must be different operators.' });
     }
-    if (currentShift === requestedShift) {
-      return res.status(400).json({ error: 'Requested shift must be different from current shift.' });
-    }
-
     const files = req.files || [];
     const attachments = files.map((f) => ({
       filename: f.filename,
@@ -558,6 +557,7 @@ async function main() {
       colleagueName,
       colleagueEmail,
       rosterDate,
+      returnRosterDate,
       currentShift,
       requestedShift,
       details,
@@ -585,6 +585,7 @@ async function main() {
           colleague_name,
           colleague_email,
           roster_date,
+          return_roster_date,
           current_shift,
           requested_shift,
           details,
@@ -600,6 +601,7 @@ async function main() {
           ${colleagueName},
           ${colleagueEmail},
           ${rosterDate}::date,
+          ${returnRosterDate}::date,
           ${currentShift},
           ${requestedShift},
           ${details},
@@ -864,24 +866,25 @@ async function main() {
   app.patch('/api/shift-swaps/:id/schedule', async (req, res) => {
     const { id } = req.params;
     const rosterDate = String(req.body?.rosterDate || '');
+    const returnRosterDate = req.body?.returnRosterDate ? String(req.body.returnRosterDate) : null;
     if (!rosterDate) return res.status(400).json({ error: 'Missing rosterDate.' });
     if (!useNeon) {
       const list = readShiftSwapsFile();
       const i = list.findIndex((s) => s.id === id);
       if (i === -1) return res.status(404).json({ error: 'Not found.' });
-      list[i] = { ...list[i], rosterDate };
+      list[i] = { ...list[i], rosterDate, returnRosterDate };
       writeShiftSwapsFile(list);
-      return res.json({ id, rosterDate });
+      return res.json({ id, rosterDate, returnRosterDate });
     }
     try {
       const rows = await sql`
         UPDATE shift_swap_requests
-        SET roster_date = ${rosterDate}::date
+        SET roster_date = ${rosterDate}::date, return_roster_date = ${returnRosterDate}::date
         WHERE id = ${id}::uuid
-        RETURNING id, roster_date AS "rosterDate"
+        RETURNING id, roster_date AS "rosterDate", return_roster_date AS "returnRosterDate"
       `;
       if (!rows.length) return res.status(404).json({ error: 'Not found.' });
-      res.json({ id: rows[0].id, rosterDate: toYmd(rows[0].rosterDate) });
+      res.json({ id: rows[0].id, rosterDate: toYmd(rows[0].rosterDate), returnRosterDate: toYmd(rows[0].returnRosterDate) });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Could not update shift swap date.' });

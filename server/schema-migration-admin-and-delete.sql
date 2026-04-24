@@ -5,7 +5,8 @@ ALTER TABLE vacation_requests
   ADD COLUMN IF NOT EXISTS admin_notes TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE shift_swap_requests
-  ADD COLUMN IF NOT EXISTS admin_notes TEXT NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS admin_notes TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS return_roster_date DATE;
 
 CREATE TABLE IF NOT EXISTS shift_swap_attachments (
   id SERIAL PRIMARY KEY,

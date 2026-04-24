@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS shift_swap_requests (
   colleague_name TEXT NOT NULL,
   colleague_email TEXT NOT NULL,
   roster_date DATE NOT NULL,
+  return_roster_date DATE,
   current_shift TEXT NOT NULL CHECK (current_shift IN ('morning', 'night')),
   requested_shift TEXT NOT NULL CHECK (requested_shift IN ('morning', 'night')),
   details TEXT NOT NULL DEFAULT '',
@@ -79,7 +80,8 @@ ALTER TABLE vacation_requests
 ALTER TABLE shift_swap_requests
   ADD COLUMN IF NOT EXISTS roster_processed BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS admin_notes TEXT NOT NULL DEFAULT '';
+  ADD COLUMN IF NOT EXISTS admin_notes TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS return_roster_date DATE;
 
 -- Older vacation_requests without admin column
 ALTER TABLE vacation_requests
