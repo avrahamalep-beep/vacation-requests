@@ -14,6 +14,14 @@ type Tab = 'request' | 'shiftSwap' | 'inbox' | 'calendar' | 'roster';
 
 const API = import.meta.env.VITE_API_BASE_URL ?? '';
 
+function initialTabFromUrl(): Tab {
+  if (typeof window === 'undefined') return 'request';
+  const view = new URLSearchParams(window.location.search).get('view');
+  return view === 'roster' || view === 'calendar' || view === 'inbox' || view === 'shiftSwap' || view === 'request'
+    ? view
+    : 'request';
+}
+
 function shareablePublicUrl(): string | null {
   const fromEnv = (import.meta.env.VITE_PUBLIC_APP_URL || '').trim().replace(/\/$/, '');
   if (fromEnv) return fromEnv;
@@ -66,7 +74,7 @@ export default function App() {
   const [requests, setRequests] = useState<VacationRequest[]>([]);
   const [shiftSwaps, setShiftSwaps] = useState<ShiftSwapRequest[]>([]);
   const [roster, setRoster] = useState<RosterSnapshot | null>(null);
-  const [tab, setTab] = useState<Tab>('request');
+  const [tab, setTab] = useState<Tab>(() => initialTabFromUrl());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -97,6 +105,13 @@ export default function App() {
   const [emailTo, setEmailTo] = useState<Record<string, boolean>>({});
 
   const publicShareUrl = useMemo(() => shareablePublicUrl(), []);
+
+  function appViewLink(view: Tab): string {
+    const base =
+      publicShareUrl ||
+      (typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}`.replace(/\/$/, '') : '');
+    return `${base}/?view=${view}`;
+  }
 
   const selectedOp = useMemo(
     () => operators.find((o) => o.email === operatorEmail),
@@ -381,11 +396,14 @@ export default function App() {
   }
 
   function buildNotificationBody(req: VacationRequest): string {
+    const rosterLink = appViewLink('roster');
     const lines = [
       `Vacation request — ${req.operatorName}`,
       `Dates: ${req.startDate} to ${req.endDate}`,
       `Business days: ${req.daysCount}`,
       req.notes ? `Notes: ${req.notes}` : '',
+      '',
+      `Open roster view: ${rosterLink}`,
       '',
       'Outlook cannot add attachments via a web link. Open the inbox in this app and download attachments if needed.',
     ].filter(Boolean);
@@ -416,6 +434,8 @@ export default function App() {
       `Roster date: ${s.rosterDate}`,
       `Change: ${s.currentShift} → ${s.requestedShift}`,
       s.details ? `Details: ${s.details}` : '',
+      '',
+      `Open roster view: ${appViewLink('roster')}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -443,6 +463,8 @@ export default function App() {
       `Your vacation request (${req.startDate} → ${req.endDate}) was ${status}.`,
       req.adminNotes ? `Admin note: ${req.adminNotes}` : '',
       '',
+      `Open roster view: ${appViewLink('roster')}`,
+      '',
       'If you have questions, reply to the roster owner.',
     ]
       .filter(Boolean)
@@ -455,6 +477,8 @@ export default function App() {
       '',
       `Your shift swap request for ${s.rosterDate} (${s.currentShift} → ${s.requestedShift}) was ${status}.`,
       s.adminNotes ? `Admin note: ${s.adminNotes}` : '',
+      '',
+      `Open roster view: ${appViewLink('roster')}`,
       '',
       'If you have questions, reply to the roster owner.',
     ]
@@ -529,6 +553,8 @@ export default function App() {
       '',
       `Your vacation request (${req.startDate} → ${req.endDate}, ${req.daysCount} business days) has been accepted and updated in the published roster.`,
       '',
+      `Open roster view: ${appViewLink('roster')}`,
+      '',
       'If anything looks wrong, reply to the roster owner.',
     ].join('\n');
   }
@@ -539,6 +565,8 @@ export default function App() {
       '',
       `Your shift swap for ${s.rosterDate} (${s.currentShift} → ${s.requestedShift}) has been accepted and updated in the published roster.`,
       s.details ? `Original request: ${s.details}` : '',
+      '',
+      `Open roster view: ${appViewLink('roster')}`,
       '',
       'If anything looks wrong, reply to the roster owner.',
     ]
@@ -646,6 +674,8 @@ export default function App() {
       `Operator: ${req.operatorName}`,
       `Dates: ${req.startDate} → ${req.endDate} (${req.daysCount} business days)`,
       req.notes ? `Original notes: ${req.notes}` : '',
+      '',
+      `Open roster view: ${appViewLink('roster')}`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -657,6 +687,8 @@ export default function App() {
       `Request: ${s.requesterName} ↔ ${s.colleagueName}`,
       `Roster date: ${s.rosterDate} (${s.currentShift} → ${s.requestedShift})`,
       s.details ? `Details: ${s.details}` : '',
+      '',
+      `Open roster view: ${appViewLink('roster')}`,
     ]
       .filter(Boolean)
       .join('\n');
