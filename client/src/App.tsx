@@ -367,10 +367,6 @@ export default function App() {
       alert('Requester and colleague must be different operators.');
       return;
     }
-    if (swapCurrentShift === swapRequestedShift) {
-      alert('Requested shift must be different from current shift.');
-      return;
-    }
 
     setSwapSubmitting(true);
     try {
