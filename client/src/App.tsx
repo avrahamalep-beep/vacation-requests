@@ -23,6 +23,22 @@ function shareablePublicUrl(): string | null {
   return window.location.origin;
 }
 
+function rosterTokens(name: string): string[] {
+  return name
+    .toLowerCase()
+    .replace(/#/g, ' ')
+    .split(/[\\/,&+]+/)
+    .flatMap((part) => part.trim().split(/\s+/))
+    .filter(Boolean);
+}
+
+function rosterNameMatches(rosterName: string, personName: string, personEmail: string): boolean {
+  const roster = rosterTokens(rosterName);
+  const person = rosterTokens(personName);
+  const email = personEmail.toLowerCase();
+  return roster.some((token) => person.includes(token) || email.includes(token));
+}
+
 export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
@@ -210,14 +226,17 @@ export default function App() {
           for (const r of requests) {
             const sameOperator =
               r.operatorName.trim().toLowerCase() === employee ||
-              r.operatorEmail.toLowerCase().includes(employee.replace(/\s+/g, '.'));
+              rosterNameMatches(row.operatorName, r.operatorName, r.operatorEmail);
             if (sameOperator && ymd >= r.startDate && ymd <= r.endDate && r.status !== 'rejected') {
               notes.push(`Vacation (${r.status || 'pending'}): ${r.operatorName}${r.notes ? ` - ${r.notes}` : ''}`);
             }
           }
           for (const s of shiftSwaps) {
             const sameOperator =
-              s.requesterName.trim().toLowerCase() === employee || s.colleagueName.trim().toLowerCase() === employee;
+              s.requesterName.trim().toLowerCase() === employee ||
+              s.colleagueName.trim().toLowerCase() === employee ||
+              rosterNameMatches(row.operatorName, s.requesterName, s.requesterEmail) ||
+              rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
             if (sameOperator && ymd === s.rosterDate && s.status !== 'rejected') {
               notes.push(`Swap (${s.status || 'pending'}): ${s.requesterName} ↔ ${s.colleagueName}`);
             }
