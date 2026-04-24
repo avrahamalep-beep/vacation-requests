@@ -39,6 +39,18 @@ function rosterNameMatches(rosterName: string, personName: string, personEmail: 
   return roster.some((token) => person.includes(token) || email.includes(token));
 }
 
+function rosterShiftClass(operatorName: string, value: string): string {
+  const code = value.trim().toUpperCase();
+  const isKety = operatorName.trim().toLowerCase() === 'kety';
+  if (isKety && code === 'D') return 'shift-kety-d';
+  if (code === 'O') return 'shift-o';
+  if (code === 'V') return 'shift-v';
+  if (code === 'D') return 'shift-d';
+  if (code === 'N') return 'shift-n';
+  if (code === 'C') return 'shift-c';
+  return '';
+}
+
 export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
@@ -1465,7 +1477,9 @@ export default function App() {
                         {row.cells.map((cell, i) => (
                           <td
                             key={`${row.operatorName}-${rosterWithRequests.dates[i]}`}
-                            className={cell.hasRequest ? 'roster-request-cell' : ''}
+                            className={[rosterShiftClass(row.operatorName, cell.value), cell.hasRequest ? 'roster-request-cell' : '']
+                              .filter(Boolean)
+                              .join(' ')}
                             title={cell.requestNotes.join('\n')}
                           >
                             <div className="roster-cell-value">{cell.value || '—'}</div>

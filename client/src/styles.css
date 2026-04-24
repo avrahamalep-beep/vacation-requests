@@ -608,9 +608,9 @@ textarea {
 }
 
 .roster-request-cell {
-  background: rgba(251, 191, 36, 0.32) !important;
-  color: #fef3c7;
-  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.5);
+  box-shadow:
+    inset 0 0 0 2px #ef4444,
+    inset 0 -3px 0 rgba(239, 68, 68, 0.55);
 }
 
 .roster-cell-value {
@@ -621,5 +621,36 @@ textarea {
   margin-top: 0.25rem;
   font-size: 0.68rem;
   line-height: 1.25;
-  color: #fffbeb;
+  color: inherit;
+  font-weight: 600;
+}
+
+.shift-o {
+  background: #ffffff !important;
+  color: #111827;
+}
+
+.shift-v {
+  background: #bbf7d0 !important;
+  color: #14532d;
+}
+
+.shift-d {
+  background: #fde68a !important;
+  color: #78350f;
+}
+
+.shift-n {
+  background: #bae6fd !important;
+  color: #0c4a6e;
+}
+
+.shift-c {
+  background: #fed7aa !important;
+  color: #7c2d12;
+}
+
+.shift-kety-d {
+  background: #fbcfe8 !important;
+  color: #831843;
 }
