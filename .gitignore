@@ -1,0 +1,8 @@
+node_modules/
+dist/
+server/uploads/
+server/data/requests.json
+server/data/shiftSwaps.json
+!server/data/.gitkeep
+.env
+.env.local
