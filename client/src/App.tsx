@@ -81,6 +81,7 @@ export default function App() {
   const [calFilterTo, setCalFilterTo] = useState('');
   const [calNameFilter, setCalNameFilter] = useState('');
   const [rosterUploading, setRosterUploading] = useState(false);
+  const [rosterFromDate, setRosterFromDate] = useState(() => formatIsoDate(new Date()));
 
   const [emailTo, setEmailTo] = useState<Record<string, boolean>>({});
 
@@ -258,6 +259,20 @@ export default function App() {
       })),
     };
   }, [requests, roster, shiftSwaps]);
+
+  const visibleRoster = useMemo(() => {
+    if (!rosterWithRequests) return null;
+    const startIndex = rosterFromDate ? rosterWithRequests.dates.findIndex((d) => d >= rosterFromDate) : 0;
+    const from = startIndex < 0 ? rosterWithRequests.dates.length : startIndex;
+    return {
+      ...rosterWithRequests,
+      dates: rosterWithRequests.dates.slice(from),
+      rows: rosterWithRequests.rows.map((row) => ({
+        ...row,
+        cells: row.cells.slice(from),
+      })),
+    };
+  }, [rosterFromDate, rosterWithRequests]);
 
   const holidaysByDate = useMemo(() => {
     const map = new Map<string, string>();
@@ -1460,23 +1475,35 @@ export default function App() {
                 Current file: <strong>{rosterWithRequests.originalName}</strong> · uploaded{' '}
                 {new Date(rosterWithRequests.uploadedAt).toLocaleString()}
               </p>
+              <div className="cal-filters roster-filters">
+                <label className="field inline">
+                  <span>Show roster from date</span>
+                  <input type="date" value={rosterFromDate} onChange={(e) => setRosterFromDate(e.target.value)} />
+                </label>
+                <button type="button" className="btn ghost" onClick={() => setRosterFromDate('')}>
+                  Show all dates
+                </button>
+                <button type="button" className="btn ghost" onClick={() => setRosterFromDate(formatIsoDate(new Date()))}>
+                  From today
+                </button>
+              </div>
               <div className="roster-scroll">
                 <table className="roster-table">
                   <thead>
                     <tr>
                       <th>Operator</th>
-                      {rosterWithRequests.dates.map((d) => (
+                      {visibleRoster!.dates.map((d) => (
                         <th key={d}>{d}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rosterWithRequests.rows.map((row) => (
+                    {visibleRoster!.rows.map((row) => (
                       <tr key={row.operatorName}>
                         <th>{row.operatorName}</th>
                         {row.cells.map((cell, i) => (
                           <td
-                            key={`${row.operatorName}-${rosterWithRequests.dates[i]}`}
+                            key={`${row.operatorName}-${visibleRoster!.dates[i]}`}
                             className={[rosterShiftClass(row.operatorName, cell.value), cell.hasRequest ? 'roster-request-cell' : '']
                               .filter(Boolean)
                               .join(' ')}
@@ -1497,6 +1524,11 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+              {visibleRoster!.dates.length === 0 && (
+                <p className="muted" style={{ marginTop: '0.75rem' }}>
+                  No roster dates from the selected date. Use “Show all dates” or choose an earlier date.
+                </p>
+              )}
             </>
           ) : (
             <p className="muted">No roster uploaded yet.</p>

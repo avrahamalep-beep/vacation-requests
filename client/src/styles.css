@@ -580,9 +580,10 @@ textarea {
 .roster-table td {
   border: 1px solid var(--border);
   padding: 0.4rem 0.5rem;
-  vertical-align: top;
+  vertical-align: middle;
   background: rgba(15, 23, 42, 0.45);
   min-width: 92px;
+  text-align: center;
 }
 
 .roster-table thead th,
@@ -615,6 +616,9 @@ textarea {
 
 .roster-cell-value {
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .roster-cell-note {
@@ -623,6 +627,11 @@ textarea {
   line-height: 1.25;
   color: inherit;
   font-weight: 600;
+  text-align: center;
+}
+
+.roster-filters {
+  margin-top: 0.75rem;
 }
 
 .shift-o {
