@@ -69,6 +69,15 @@ function formatRosterDate(ymd: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function swapCoverageLines(s: ShiftSwapRequest): string[] {
+  return [
+    `Swap date: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers ${s.requesterName}`,
+    s.returnRosterDate
+      ? `Return date: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} covers ${s.colleagueName}`
+      : '',
+  ].filter(Boolean);
+}
+
 export default function App() {
   const [operators, setOperators] = useState<Operator[]>([]);
   const [requests, setRequests] = useState<VacationRequest[]>([]);
@@ -249,14 +258,14 @@ export default function App() {
       m.get(s.rosterDate)!.push({
         kind: 'swap',
         title: `${s.colleagueName} covers ${s.requesterName}`,
-        note: `${s.currentShift}${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
+        note: `${s.currentShift} · ${s.requesterName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
       });
       if (s.returnRosterDate) {
         if (!m.has(s.returnRosterDate)) m.set(s.returnRosterDate, []);
         m.get(s.returnRosterDate)!.push({
           kind: 'swap',
           title: `${s.requesterName} covers ${s.colleagueName}`,
-          note: `${s.requestedShift}${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
+          note: `${s.requestedShift} · ${s.colleagueName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
         });
       }
     }
@@ -290,10 +299,12 @@ export default function App() {
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
             const swapState = s.status === 'accepted' ? 'Approved' : 'Requesting';
             if (s.status !== 'rejected' && ymd === s.rosterDate) {
-              if (isRequester || isColleague) notes.push(`${swapState}: ${s.colleagueName} covers ${s.requesterName}`);
+              if (isRequester) notes.push(`${swapState}: ${s.colleagueName} covers my ${s.currentShift}`);
+              if (isColleague) notes.push(`${swapState}: I cover ${s.requesterName} ${s.currentShift}`);
             }
             if (s.status !== 'rejected' && s.returnRosterDate && ymd === s.returnRosterDate) {
-              if (isRequester || isColleague) notes.push(`${swapState}: ${s.requesterName} covers ${s.colleagueName}`);
+              if (isRequester) notes.push(`${swapState}: I cover ${s.colleagueName} ${s.requestedShift}`);
+              if (isColleague) notes.push(`${swapState}: ${s.requesterName} covers my ${s.requestedShift}`);
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
@@ -445,8 +456,7 @@ export default function App() {
     return [
       `Shift swap request — ${s.requesterName}`,
       `With: ${s.colleagueName}`,
-      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
-      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
+      ...swapCoverageLines(s),
       s.details ? `Details: ${s.details}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
@@ -490,8 +500,7 @@ export default function App() {
       `Hello ${s.requesterName} and ${s.colleagueName},`,
       '',
       `Your shift swap request was ${status}.`,
-      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
-      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
+      ...swapCoverageLines(s),
       s.adminNotes ? `Admin note: ${s.adminNotes}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
@@ -640,8 +649,7 @@ export default function App() {
       `Hello ${s.requesterName} and ${s.colleagueName},`,
       '',
       `Your shift swap has been accepted and updated in the published roster.`,
-      `Needs free: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers`,
-      s.returnRosterDate ? `Returns shift: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} works` : '',
+      ...swapCoverageLines(s),
       s.details ? `Original request: ${s.details}` : '',
       '',
       `Open roster view: ${appViewLink('roster')}`,
