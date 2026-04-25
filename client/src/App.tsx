@@ -69,11 +69,32 @@ function formatRosterDate(ymd: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function shiftLabel(value?: string): string {
+  const v = (value || '').trim();
+  const normalized = v.toLowerCase();
+  if (normalized === 'd' || normalized === 'day' || normalized === 'morning') return 'Morning';
+  if (normalized === 'n' || normalized === 'night') return 'Night';
+  if (normalized === 'o') return 'Off';
+  if (normalized === 'v') return 'Vacation';
+  if (normalized === 'c') return 'C';
+  return v || 'shift';
+}
+
+function rosterCellValue(roster: RosterSnapshot | null, personName: string, personEmail: string, ymd: string): string {
+  if (!roster) return '';
+  const dateIndex = roster.dates.findIndex((d) => d === ymd);
+  if (dateIndex < 0) return '';
+  const row = roster.rows.find((r) => rosterNameMatches(r.operatorName, personName, personEmail));
+  return row?.cells[dateIndex]?.value || '';
+}
+
 function swapCoverageLines(s: ShiftSwapRequest): string[] {
+  const requesterShift = shiftLabel(s.currentShift);
+  const colleagueShift = shiftLabel(s.requestedShift);
   return [
-    `Swap date: ${s.rosterDate} (${s.currentShift}) — ${s.colleagueName} covers ${s.requesterName}`,
+    `Swap date: ${s.rosterDate} (${requesterShift}) — ${s.colleagueName} covers ${s.requesterName}`,
     s.returnRosterDate
-      ? `Return date: ${s.returnRosterDate} (${s.requestedShift}) — ${s.requesterName} covers ${s.colleagueName}`
+      ? `Return date: ${s.returnRosterDate} (${colleagueShift}) — ${s.requesterName} covers ${s.colleagueName}`
       : '',
   ].filter(Boolean);
 }
@@ -254,23 +275,27 @@ export default function App() {
     for (const s of filteredCalendarSwaps) {
       if (s.status === 'rejected') continue;
       const noteParts = [s.status || 'pending', s.details, s.adminNotes].map((x) => (x || '').trim()).filter(Boolean);
+      const requesterRosterShift = shiftLabel(rosterCellValue(roster, s.requesterName, s.requesterEmail, s.rosterDate) || s.currentShift);
+      const returnRosterShift = shiftLabel(
+        s.returnRosterDate ? rosterCellValue(roster, s.colleagueName, s.colleagueEmail, s.returnRosterDate) : s.requestedShift
+      );
       if (!m.has(s.rosterDate)) m.set(s.rosterDate, []);
       m.get(s.rosterDate)!.push({
         kind: 'swap',
         title: `${s.colleagueName} covers ${s.requesterName}`,
-        note: `${s.currentShift} · ${s.requesterName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
+        note: `${requesterRosterShift} · ${s.requesterName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
       });
       if (s.returnRosterDate) {
         if (!m.has(s.returnRosterDate)) m.set(s.returnRosterDate, []);
         m.get(s.returnRosterDate)!.push({
           kind: 'swap',
           title: `${s.requesterName} covers ${s.colleagueName}`,
-          note: `${s.requestedShift} · ${s.colleagueName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
+          note: `${returnRosterShift} · ${s.colleagueName} gets this shift covered${noteParts.length ? ` · ${noteParts.join(' · ')}` : ''}`,
         });
       }
     }
     return m;
-  }, [filteredCalendarRequests, filteredCalendarSwaps]);
+  }, [filteredCalendarRequests, filteredCalendarSwaps, roster]);
 
   const rosterWithRequests = useMemo(() => {
     if (!roster) return null;
@@ -299,12 +324,14 @@ export default function App() {
               rosterNameMatches(row.operatorName, s.colleagueName, s.colleagueEmail);
             const swapState = s.status === 'accepted' ? 'Approved' : 'Requesting';
             if (s.status !== 'rejected' && ymd === s.rosterDate) {
-              if (isRequester) notes.push(`${swapState}: ${s.colleagueName} covers my ${s.currentShift}`);
-              if (isColleague) notes.push(`${swapState}: I cover ${s.requesterName} ${s.currentShift}`);
+              const requesterShift = shiftLabel(rosterCellValue(roster, s.requesterName, s.requesterEmail, ymd) || s.currentShift);
+              if (isRequester) notes.push(`${swapState}: ${s.colleagueName} covers my ${requesterShift}`);
+              if (isColleague) notes.push(`${swapState}: I cover ${s.requesterName} ${requesterShift}`);
             }
             if (s.status !== 'rejected' && s.returnRosterDate && ymd === s.returnRosterDate) {
-              if (isRequester) notes.push(`${swapState}: I cover ${s.colleagueName} ${s.requestedShift}`);
-              if (isColleague) notes.push(`${swapState}: ${s.requesterName} covers my ${s.requestedShift}`);
+              const colleagueShift = shiftLabel(rosterCellValue(roster, s.colleagueName, s.colleagueEmail, ymd) || s.requestedShift);
+              if (isRequester) notes.push(`${swapState}: I cover ${s.colleagueName} ${colleagueShift}`);
+              if (isColleague) notes.push(`${swapState}: ${s.requesterName} covers my ${colleagueShift}`);
             }
           }
           return { ...cell, hasRequest: notes.length > 0, requestNotes: notes };
