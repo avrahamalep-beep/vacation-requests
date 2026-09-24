@@ -170,25 +170,44 @@ function excelDateToYmd(value) {
   return s;
 }
 
+function rosterSheetCellRaw(sheet, row0, col0) {
+  const addr = XLSX.utils.encode_cell({ r: row0, c: col0 });
+  const cell = sheet[addr];
+  if (!cell || cell.v == null || cell.v === '') return '';
+  return cell.v;
+}
+
+function rosterSheetCellText(sheet, row0, col0) {
+  const v = rosterSheetCellRaw(sheet, row0, col0);
+  if (v === '') return '';
+  if (v instanceof Date) return excelDateToYmd(v);
+  return String(v).trim();
+}
+
 function parseRosterWorkbook(filePath, originalName) {
   const wb = XLSX.readFile(filePath, { cellDates: true });
   const firstSheet = wb.Sheets[wb.SheetNames[0]];
-  const grid = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true, blankrows: false });
-  const dateRow = grid[1] || [];
+  const ref = firstSheet['!ref'];
+  if (!ref) {
+    return { originalName, uploadedAt: new Date().toISOString(), dates: [], rows: [] };
+  }
+  const range = XLSX.utils.decode_range(ref);
+  const dateRow0 = 1; // Excel row 2
   const dates = [];
-  for (let c = 1; c < dateRow.length; c++) {
-    const ymd = excelDateToYmd(dateRow[c]);
+  for (let c = 1; c <= range.e.c; c++) {
+    const ymd = excelDateToYmd(rosterSheetCellRaw(firstSheet, dateRow0, c));
     if (ymd) dates.push(ymd);
   }
   const rows = [];
-  for (let r = 2; r < Math.min(grid.length, 17); r++) {
-    const row = grid[r] || [];
-    const operatorName = String(row[0] || '').trim();
+  // Fixed Excel rows A3:A17 (0-based sheet rows 2–16), not grid indices (blank rows break sheet_to_json).
+  for (let excelRow = 3; excelRow <= 17; excelRow++) {
+    const row0 = excelRow - 1;
+    const operatorName = rosterSheetCellText(firstSheet, row0, 0);
     if (!operatorName) continue;
     rows.push({
       operatorName,
       cells: dates.map((_, i) => ({
-        value: row[i + 1] == null ? '' : String(row[i + 1]).trim(),
+        value: rosterSheetCellText(firstSheet, row0, i + 1),
         hasRequest: false,
         requestNotes: [],
       })),

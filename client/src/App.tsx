@@ -1705,6 +1705,9 @@ export default function App() {
               <div className="import-info">
                 <span>Current file: <strong>{rosterWithRequests.originalName}</strong></span>
                 <span>Last import: <strong>{formatImportDate(rosterWithRequests.uploadedAt)}</strong></span>
+                <span>
+                  Operators loaded: <strong>{rosterWithRequests.rows.length}</strong> (Excel rows A3:A17)
+                </span>
               </div>
               <div className="cal-filters roster-filters">
                 <label className="field inline">
