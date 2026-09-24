@@ -198,34 +198,36 @@ function isRosterOperatorName(name) {
 }
 
 function parseRosterFromSheet(sheet, originalName) {
-  const ref = sheet['!ref'];
-  if (!ref) return null;
-  const range = XLSX.utils.decode_range(ref);
-  const dateRow0 = 1; // Excel row 2
+  // Keep Excel row numbers: grid[0] = row 1. Do not drop blank rows.
+  const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '', blankrows: true });
+  const dateRow = grid[1] || [];
   const dates = [];
   const dateCols = [];
-  for (let c = 1; c <= range.e.c; c++) {
-    const ymd = excelDateToYmd(rosterSheetCellRaw(sheet, dateRow0, c));
+  let emptyRun = 0;
+  const lastCol = Math.min(dateRow.length, 800);
+  for (let c = 1; c < lastCol; c++) {
+    const ymd = excelDateToYmd(dateRow[c]);
     if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
       dates.push(ymd);
       dateCols.push(c);
+      emptyRun = 0;
+      continue;
     }
+    if (dates.length) emptyRun += 1;
+    if (emptyRun >= 8) break;
   }
   if (!dates.length) return null;
 
   const rows = [];
-  const scanTo = Math.min(Math.max(range.e.r + 1, 17), 40);
-  for (let excelRow = 3; excelRow <= scanTo; excelRow++) {
-    const row0 = excelRow - 1;
-    const operatorName = rosterSheetCellText(sheet, row0, 0);
-    if (!isRosterOperatorName(operatorName)) {
-      if (rows.length >= 8) break;
-      continue;
-    }
+  // First operator block in this workbook is A3:A16 (A17 is the totals band).
+  for (let excelRow = 3; excelRow <= 16; excelRow++) {
+    const row = grid[excelRow - 1] || [];
+    const operatorName = String(row[0] ?? '').trim();
+    if (!isRosterOperatorName(operatorName)) continue;
     rows.push({
       operatorName,
       cells: dateCols.map((c) => ({
-        value: rosterSheetCellText(sheet, row0, c),
+        value: row[c] == null || row[c] === '' ? '' : String(row[c]).trim(),
         hasRequest: false,
         requestNotes: [],
       })),
@@ -236,7 +238,8 @@ function parseRosterFromSheet(sheet, originalName) {
 }
 
 function parseRosterWorkbook(filePath, originalName) {
-  const wb = XLSX.readFile(filePath, { cellDates: true, cellNF: true, cellText: true });
+  // sheetRows avoids the unused XFD used-range (A1:XFD56) that made Render uploads time out.
+  const wb = XLSX.readFile(filePath, { cellDates: true, cellNF: true, cellText: true, sheetRows: 18 });
   let best = null;
   for (const name of wb.SheetNames) {
     const parsed = parseRosterFromSheet(wb.Sheets[name], originalName);
