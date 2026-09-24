@@ -170,11 +170,15 @@ function excelDateToYmd(value) {
   return s;
 }
 
+const ROSTER_SECTION_BREAK = /סכום|סה["״']?כ|^\s*(sum|total|totals|count|day|night)\s*$/i;
+
 function rosterSheetCellRaw(sheet, row0, col0) {
   const addr = XLSX.utils.encode_cell({ r: row0, c: col0 });
   const cell = sheet[addr];
-  if (!cell || cell.v == null || cell.v === '') return '';
-  return cell.v;
+  if (!cell) return '';
+  if (cell.v != null && cell.v !== '') return cell.v;
+  if (cell.w != null && String(cell.w).trim() !== '') return cell.w;
+  return '';
 }
 
 function rosterSheetCellText(sheet, row0, col0) {
@@ -184,36 +188,62 @@ function rosterSheetCellText(sheet, row0, col0) {
   return String(v).trim();
 }
 
-function parseRosterWorkbook(filePath, originalName) {
-  const wb = XLSX.readFile(filePath, { cellDates: true });
-  const firstSheet = wb.Sheets[wb.SheetNames[0]];
-  const ref = firstSheet['!ref'];
-  if (!ref) {
-    return { originalName, uploadedAt: new Date().toISOString(), dates: [], rows: [] };
-  }
+function isRosterOperatorName(name) {
+  if (!name) return false;
+  const t = String(name).trim();
+  if (!t) return false;
+  if (ROSTER_SECTION_BREAK.test(t)) return false;
+  if (/^operators?$/i.test(t)) return false;
+  return true;
+}
+
+function parseRosterFromSheet(sheet, originalName) {
+  const ref = sheet['!ref'];
+  if (!ref) return null;
   const range = XLSX.utils.decode_range(ref);
   const dateRow0 = 1; // Excel row 2
   const dates = [];
+  const dateCols = [];
   for (let c = 1; c <= range.e.c; c++) {
-    const ymd = excelDateToYmd(rosterSheetCellRaw(firstSheet, dateRow0, c));
-    if (ymd) dates.push(ymd);
+    const ymd = excelDateToYmd(rosterSheetCellRaw(sheet, dateRow0, c));
+    if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) {
+      dates.push(ymd);
+      dateCols.push(c);
+    }
   }
+  if (!dates.length) return null;
+
   const rows = [];
-  // Fixed Excel rows A3:A17 (0-based sheet rows 2–16), not grid indices (blank rows break sheet_to_json).
-  for (let excelRow = 3; excelRow <= 17; excelRow++) {
+  const scanTo = Math.min(Math.max(range.e.r + 1, 17), 40);
+  for (let excelRow = 3; excelRow <= scanTo; excelRow++) {
     const row0 = excelRow - 1;
-    const operatorName = rosterSheetCellText(firstSheet, row0, 0);
-    if (!operatorName) continue;
+    const operatorName = rosterSheetCellText(sheet, row0, 0);
+    if (!isRosterOperatorName(operatorName)) {
+      if (rows.length >= 8) break;
+      continue;
+    }
     rows.push({
       operatorName,
-      cells: dates.map((_, i) => ({
-        value: rosterSheetCellText(firstSheet, row0, i + 1),
+      cells: dateCols.map((c) => ({
+        value: rosterSheetCellText(sheet, row0, c),
         hasRequest: false,
         requestNotes: [],
       })),
     });
   }
+  if (!rows.length) return null;
   return { originalName, uploadedAt: new Date().toISOString(), dates, rows };
+}
+
+function parseRosterWorkbook(filePath, originalName) {
+  const wb = XLSX.readFile(filePath, { cellDates: true, cellNF: true, cellText: true });
+  let best = null;
+  for (const name of wb.SheetNames) {
+    const parsed = parseRosterFromSheet(wb.Sheets[name], originalName);
+    if (!parsed) continue;
+    if (!best || parsed.rows.length > best.rows.length) best = parsed;
+  }
+  return best || { originalName, uploadedAt: new Date().toISOString(), dates: [], rows: [] };
 }
 
 function normalizeVacationRow(r) {
@@ -936,7 +966,7 @@ async function main() {
     try {
       const snapshot = parseRosterWorkbook(req.file.path, req.file.originalname);
       if (!snapshot.dates.length || !snapshot.rows.length) {
-        return res.status(400).json({ error: 'Could not read roster. Expected dates in row 2 and operators in A3:A17.' });
+        return res.status(400).json({ error: 'Could not read roster. Expected dates in row 2 and operator names in column A from row 3.' });
       }
       if (!useNeon) {
         writeRosterFile(snapshot);

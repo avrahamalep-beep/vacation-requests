@@ -605,11 +605,21 @@ export default function App() {
       const fd = new FormData();
       fd.append('roster', file);
       const res = await fetch(`${API}/api/roster`, { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('roster');
-      setRoster((await res.json()) as RosterSnapshot);
+      const payload = (await res.json().catch(() => null)) as RosterSnapshot | { error?: string } | null;
+      if (!res.ok) {
+        throw new Error((payload && 'error' in payload && payload.error) || 'roster');
+      }
+      const snapshot = payload as RosterSnapshot;
+      setRoster(snapshot);
       setTab('roster');
-    } catch {
-      alert('Could not upload roster. Expected Excel with dates in row 2 and operators in A3:A17.');
+      const names = (snapshot.rows || []).map((r) => r.operatorName).join(', ');
+      alert(`Roster imported: ${snapshot.rows?.length || 0} operators\n${names}`);
+    } catch (err) {
+      alert(
+        err instanceof Error && err.message && err.message !== 'roster'
+          ? err.message
+          : 'Could not upload roster. Expected Excel with dates in row 2 and operator names in column A from row 3.'
+      );
     } finally {
       setRosterUploading(false);
     }
@@ -1683,9 +1693,9 @@ export default function App() {
         <section className="card roster-card">
           <h2>Roster Excel view</h2>
           <p className="muted">
-            Upload the current roster workbook. The parser expects operator names in <strong>A3:A17</strong> and dates
-            in row <strong>2</strong> from <strong>B2</strong>. Cells become yellow when there is an active vacation or
-            shift swap request for that operator/date.
+            Upload the current roster workbook. Operator names are read from column <strong>A starting at A3</strong>
+            (Pavel … Maintenance) and dates from row <strong>2</strong> starting at <strong>B2</strong>. The green totals
+            row is ignored. Cells become yellow when there is an active vacation or shift swap request.
           </p>
           <label className="field">
             <span>Upload / update roster document</span>
@@ -1693,7 +1703,12 @@ export default function App() {
               type="file"
               accept=".xlsx,.xls,.xlsm"
               disabled={rosterUploading}
-              onChange={(e) => void uploadRoster(e.target.files?.[0] || null)}
+              onChange={(e) => {
+                const chosen = e.target.files?.[0] || null;
+                void uploadRoster(chosen).finally(() => {
+                  e.target.value = '';
+                });
+              }}
             />
             <span className="hint">
               Uploading a newer document replaces the current view. The original Excel file is parsed and stored as data
@@ -1706,7 +1721,9 @@ export default function App() {
                 <span>Current file: <strong>{rosterWithRequests.originalName}</strong></span>
                 <span>Last import: <strong>{formatImportDate(rosterWithRequests.uploadedAt)}</strong></span>
                 <span>
-                  Operators loaded: <strong>{rosterWithRequests.rows.length}</strong> (Excel rows A3:A17)
+                  Operators loaded: <strong>{rosterWithRequests.rows.length}</strong>
+                  {' — '}
+                  {rosterWithRequests.rows.map((r) => r.operatorName).join(', ')}
                 </span>
               </div>
               <div className="cal-filters roster-filters">
