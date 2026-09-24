@@ -181,7 +181,7 @@ function parseRosterWorkbook(filePath, originalName) {
     if (ymd) dates.push(ymd);
   }
   const rows = [];
-  for (let r = 2; r < Math.min(grid.length, 12); r++) {
+  for (let r = 2; r < Math.min(grid.length, 17); r++) {
     const row = grid[r] || [];
     const operatorName = String(row[0] || '').trim();
     if (!operatorName) continue;
@@ -917,7 +917,7 @@ async function main() {
     try {
       const snapshot = parseRosterWorkbook(req.file.path, req.file.originalname);
       if (!snapshot.dates.length || !snapshot.rows.length) {
-        return res.status(400).json({ error: 'Could not read roster. Expected dates in row 2 and operators in A3:A12.' });
+        return res.status(400).json({ error: 'Could not read roster. Expected dates in row 2 and operators in A3:A17.' });
       }
       if (!useNeon) {
         writeRosterFile(snapshot);

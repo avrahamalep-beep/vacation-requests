@@ -69,6 +69,16 @@ function formatRosterDate(ymd: string): string {
   return `${d}/${m}/${y}`;
 }
 
+function formatImportDate(value: string): string {
+  return new Date(value).toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function shiftLabel(value?: string): string {
   const v = (value || '').trim();
   const normalized = v.toLowerCase();
@@ -599,7 +609,7 @@ export default function App() {
       setRoster((await res.json()) as RosterSnapshot);
       setTab('roster');
     } catch {
-      alert('Could not upload roster. Expected Excel with dates in row 2 and operators in A3:A12.');
+      alert('Could not upload roster. Expected Excel with dates in row 2 and operators in A3:A17.');
     } finally {
       setRosterUploading(false);
     }
@@ -938,7 +948,7 @@ export default function App() {
   }
 
   return (
-    <div className="shell">
+    <div className={`shell ${tab === 'roster' ? 'shell-roster' : ''}`}>
       {deletionNotice && (
         <div className="card deletion-banner" role="status">
           <p style={{ marginTop: 0 }}>
@@ -1673,7 +1683,7 @@ export default function App() {
         <section className="card roster-card">
           <h2>Roster Excel view</h2>
           <p className="muted">
-            Upload the current roster workbook. The parser expects operator names in <strong>A3:A12</strong> and dates
+            Upload the current roster workbook. The parser expects operator names in <strong>A3:A17</strong> and dates
             in row <strong>2</strong> from <strong>B2</strong>. Cells become yellow when there is an active vacation or
             shift swap request for that operator/date.
           </p>
@@ -1692,10 +1702,10 @@ export default function App() {
           </label>
           {rosterWithRequests ? (
             <>
-              <p className="hint">
-                Current file: <strong>{rosterWithRequests.originalName}</strong> · uploaded{' '}
-                {new Date(rosterWithRequests.uploadedAt).toLocaleString()}
-              </p>
+              <div className="import-info">
+                <span>Current file: <strong>{rosterWithRequests.originalName}</strong></span>
+                <span>Last import: <strong>{formatImportDate(rosterWithRequests.uploadedAt)}</strong></span>
+              </div>
               <div className="cal-filters roster-filters">
                 <label className="field inline">
                   <span>Show roster from date</span>

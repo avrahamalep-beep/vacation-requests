@@ -31,8 +31,23 @@ body {
   padding-bottom: 3rem;
 }
 
-.shell:has(.roster-card) {
+.shell:has(.roster-card),
+.shell.shell-roster {
   max-width: min(1540px, 100vw);
+}
+
+.import-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 1rem;
+  align-items: center;
+  margin: 0.6rem 0 0.85rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f3faf6;
+  color: var(--text);
+  font-size: 0.86rem;
 }
 
 .header h1 {
